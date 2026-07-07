@@ -40,7 +40,8 @@ fn run_print_script(server: &str) -> Result<std::process::Output> {
 }
 
 #[test]
-fn quotes_shell_metacharacters_because_generated_commands_must_treat_server_as_data() -> Result<()> {
+fn quotes_shell_metacharacters_because_generated_commands_must_treat_server_as_data() -> Result<()>
+{
     let output = run_print_script("example.com; touch /tmp/pwned")?;
 
     assert!(output.status.success());
@@ -57,7 +58,8 @@ fn quotes_shell_metacharacters_because_generated_commands_must_treat_server_as_d
 }
 
 #[test]
-fn escapes_single_quotes_because_posix_single_quotes_must_not_terminate_the_argument() -> Result<()> {
+fn escapes_single_quotes_because_posix_single_quotes_must_not_terminate_the_argument() -> Result<()>
+{
     let output = run_print_script("bad'host")?;
 
     assert!(output.status.success());
@@ -68,7 +70,8 @@ fn escapes_single_quotes_because_posix_single_quotes_must_not_terminate_the_argu
 }
 
 #[test]
-fn rejects_option_like_servers_because_shell_quoting_does_not_stop_command_option_injection() -> Result<()> {
+fn rejects_option_like_servers_because_shell_quoting_does_not_stop_command_option_injection()
+-> Result<()> {
     let output = run_print_script("-e/bin/sh")?;
 
     assert!(!output.status.success());
@@ -78,7 +81,8 @@ fn rejects_option_like_servers_because_shell_quoting_does_not_stop_command_optio
 }
 
 #[test]
-fn rejects_control_characters_because_generated_shell_output_must_not_be_split_by_input() -> Result<()> {
+fn rejects_control_characters_because_generated_shell_output_must_not_be_split_by_input()
+-> Result<()> {
     let output = run_print_script("example.com\nid")?;
 
     assert!(!output.status.success());

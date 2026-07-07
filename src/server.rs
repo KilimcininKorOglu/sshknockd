@@ -455,8 +455,8 @@ mod tests {
     }
 
     #[test]
-    fn does_not_ban_unrelated_sources_when_aggregate_invalid_traffic_is_high_because_bans_are_per_source(
-    ) -> Result<()> {
+    fn does_not_ban_unrelated_sources_when_aggregate_invalid_traffic_is_high_because_bans_are_per_source()
+    -> Result<()> {
         let mut server = test_server(2)?;
         let runner = RecordingRunner::default();
 
@@ -470,8 +470,8 @@ mod tests {
     }
 
     #[test]
-    fn bans_source_after_its_own_invalid_limit_is_exceeded_because_rate_limits_are_per_source(
-    ) -> Result<()> {
+    fn bans_source_after_its_own_invalid_limit_is_exceeded_because_rate_limits_are_per_source()
+    -> Result<()> {
         let mut server = test_server(2)?;
         let runner = RecordingRunner::default();
         let source_ip = "192.0.2.20";

@@ -45,6 +45,7 @@ assets = [
 ]
 
 [package.metadata.generate-rpm]
+auto-req = "no"
 post_install_script = "packaging/rpm/postinstall.sh"
 assets = [
     { source = "target/release/sshknockd", dest = "/usr/bin/sshknockd", mode = "755" },

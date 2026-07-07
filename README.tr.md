@@ -56,7 +56,8 @@ OpenSSH, sshknockd için zorunlu değildir. Daemon bir TCP portunu korur, bu yü
 ## Paket build
 
 ```sh
-cargo install cargo-deb cargo-generate-rpm
+cargo install cargo-deb --version 3.7.0
+cargo install cargo-generate-rpm --version 0.18.0 --locked
 cargo build --release
 cargo deb
 cargo generate-rpm

@@ -45,7 +45,9 @@ jobs:
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
 
       - name: Install package tools
-        run: cargo install cargo-deb cargo-generate-rpm
+        run: |
+          cargo install cargo-deb --version 3.7.0
+          cargo install cargo-generate-rpm --version 0.18.0 --locked
 
       - name: Test
         run: cargo test --locked

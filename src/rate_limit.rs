@@ -36,6 +36,11 @@ where
         self.buckets.len()
     }
 
+    /// Returns true when no limiter buckets are tracked.
+    pub fn is_empty(&self) -> bool {
+        self.buckets.is_empty()
+    }
+
     fn idle_ttl(&self) -> Duration {
         match self.interval.checked_mul(2) {
             Some(duration) => duration,

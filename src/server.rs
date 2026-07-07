@@ -263,6 +263,26 @@ impl Server {
     }
 }
 
+/// Reads a TCP knock payload with a bounded timeout.
+///
+/// # Errors
+///
+/// Returns an error when timeout configuration fails or when the read fails for a reason other than timeout.
+pub fn read_tcp_knock(
+    stream: &mut std::net::TcpStream,
+    buffer: &mut [u8],
+    timeout: Duration,
+) -> std::io::Result<Option<usize>> {
+    stream.set_read_timeout(Some(timeout))?;
+    match stream.read(buffer) {
+        Ok(size) => Ok(Some(size)),
+        Err(error) if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
+            Ok(None)
+        }
+        Err(error) => Err(error),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -342,25 +362,5 @@ mod tests {
         server.expire_banned_sources(now + Duration::from_secs(2));
 
         assert!(!server.banned_sources.contains_key(&source_ip));
-    }
-}
-
-/// Reads a TCP knock payload with a bounded timeout.
-///
-/// # Errors
-///
-/// Returns an error when timeout configuration fails or when the read fails for a reason other than timeout.
-pub fn read_tcp_knock(
-    stream: &mut std::net::TcpStream,
-    buffer: &mut [u8],
-    timeout: Duration,
-) -> std::io::Result<Option<usize>> {
-    stream.set_read_timeout(Some(timeout))?;
-    match stream.read(buffer) {
-        Ok(size) => Ok(Some(size)),
-        Err(error) if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
-            Ok(None)
-        }
-        Err(error) => Err(error),
     }
 }

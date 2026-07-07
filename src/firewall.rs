@@ -9,13 +9,33 @@ pub struct CommandSpec {
     pub args: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandStatus {
+    pub success: bool,
+    pub code: Option<i32>,
+    pub diagnostics: String,
+}
+
 pub trait CommandRunner {
+    /// Runs a command without shell interpolation and returns its exit status.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the command fails to start.
+    fn run_status(&self, spec: &CommandSpec) -> Result<CommandStatus>;
+
     /// Runs a command without shell interpolation.
     ///
     /// # Errors
     ///
     /// Returns an error when the command fails to start or exits unsuccessfully.
-    fn run(&self, spec: &CommandSpec) -> Result<()>;
+    fn run(&self, spec: &CommandSpec) -> Result<()> {
+        let status = self.run_status(spec)?;
+        if !status.success {
+            bail!("{}", status.diagnostics);
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -24,15 +44,16 @@ pub struct SystemCommandRunner;
 const COMMAND_OUTPUT_LIMIT_BYTES: usize = 4096;
 
 impl CommandRunner for SystemCommandRunner {
-    fn run(&self, spec: &CommandSpec) -> Result<()> {
+    fn run_status(&self, spec: &CommandSpec) -> Result<CommandStatus> {
         let output = Command::new(&spec.program)
             .args(&spec.args)
             .output()
             .with_context(|| format!("failed to execute {}", spec.program))?;
-        if !output.status.success() {
-            bail!("{}", format_command_failure(spec, &output));
-        }
-        Ok(())
+        Ok(CommandStatus {
+            success: output.status.success(),
+            code: output.status.code(),
+            diagnostics: format_command_failure(spec, &output),
+        })
     }
 }
 
@@ -139,63 +160,119 @@ impl Firewall {
         }
     }
 
+    fn iptables_ban_drop_rule_args(&self) -> Vec<String> {
+        vec![
+            "-m".to_string(),
+            "set".to_string(),
+            "--match-set".to_string(),
+            self.ban_ipset_name.clone(),
+            "src".to_string(),
+            "-j".to_string(),
+            "DROP".to_string(),
+        ]
+    }
+
     /// Returns the firewall ban drop command for initial firewall setup.
     pub fn iptables_ban_drop_command(&self) -> CommandSpec {
+        let mut args = vec!["-I".to_string(), "INPUT".to_string(), "1".to_string()];
+        args.extend(self.iptables_ban_drop_rule_args());
         CommandSpec {
             program: self.firewall_program(),
-            args: vec![
-                "-I".to_string(),
-                "INPUT".to_string(),
-                "1".to_string(),
-                "-m".to_string(),
-                "set".to_string(),
-                "--match-set".to_string(),
-                self.ban_ipset_name.clone(),
-                "src".to_string(),
-                "-j".to_string(),
-                "DROP".to_string(),
-            ],
+            args,
         }
+    }
+
+    /// Returns the firewall ban drop check command for idempotent setup.
+    pub fn iptables_ban_drop_check_command(&self) -> CommandSpec {
+        let mut args = vec!["-C".to_string(), "INPUT".to_string()];
+        args.extend(self.iptables_ban_drop_rule_args());
+        CommandSpec {
+            program: self.firewall_program(),
+            args,
+        }
+    }
+
+    fn iptables_allow_rule_args(&self, ssh_port: u16) -> Vec<String> {
+        vec![
+            "-p".to_string(),
+            "tcp".to_string(),
+            "--dport".to_string(),
+            ssh_port.to_string(),
+            "-m".to_string(),
+            "set".to_string(),
+            "--match-set".to_string(),
+            self.ipset_name.clone(),
+            "src".to_string(),
+            "-j".to_string(),
+            "ACCEPT".to_string(),
+        ]
     }
 
     /// Returns the firewall allow command for initial firewall setup.
     pub fn iptables_allow_command(&self, ssh_port: u16) -> CommandSpec {
+        let mut args = vec!["-I".to_string(), "INPUT".to_string(), "1".to_string()];
+        args.extend(self.iptables_allow_rule_args(ssh_port));
         CommandSpec {
             program: self.firewall_program(),
-            args: vec![
-                "-I".to_string(),
-                "INPUT".to_string(),
-                "1".to_string(),
-                "-p".to_string(),
-                "tcp".to_string(),
-                "--dport".to_string(),
-                ssh_port.to_string(),
-                "-m".to_string(),
-                "set".to_string(),
-                "--match-set".to_string(),
-                self.ipset_name.clone(),
-                "src".to_string(),
-                "-j".to_string(),
-                "ACCEPT".to_string(),
-            ],
+            args,
         }
+    }
+
+    /// Returns the firewall allow check command for idempotent setup.
+    pub fn iptables_allow_check_command(&self, ssh_port: u16) -> CommandSpec {
+        let mut args = vec!["-C".to_string(), "INPUT".to_string()];
+        args.extend(self.iptables_allow_rule_args(ssh_port));
+        CommandSpec {
+            program: self.firewall_program(),
+            args,
+        }
+    }
+
+    fn iptables_drop_rule_args(&self, ssh_port: u16) -> Vec<String> {
+        vec![
+            "-p".to_string(),
+            "tcp".to_string(),
+            "--dport".to_string(),
+            ssh_port.to_string(),
+            "-j".to_string(),
+            "DROP".to_string(),
+        ]
     }
 
     /// Returns the firewall drop command for initial firewall setup.
     pub fn iptables_drop_command(&self, ssh_port: u16) -> CommandSpec {
+        let mut args = vec!["-A".to_string(), "INPUT".to_string()];
+        args.extend(self.iptables_drop_rule_args(ssh_port));
         CommandSpec {
             program: self.firewall_program(),
-            args: vec![
-                "-A".to_string(),
-                "INPUT".to_string(),
-                "-p".to_string(),
-                "tcp".to_string(),
-                "--dport".to_string(),
-                ssh_port.to_string(),
-                "-j".to_string(),
-                "DROP".to_string(),
-            ],
+            args,
         }
+    }
+
+    /// Returns the firewall drop check command for idempotent setup.
+    pub fn iptables_drop_check_command(&self, ssh_port: u16) -> CommandSpec {
+        let mut args = vec!["-C".to_string(), "INPUT".to_string()];
+        args.extend(self.iptables_drop_rule_args(ssh_port));
+        CommandSpec {
+            program: self.firewall_program(),
+            args,
+        }
+    }
+
+    fn ensure_iptables_rule<R: CommandRunner>(
+        &self,
+        runner: &R,
+        check: CommandSpec,
+        apply: CommandSpec,
+    ) -> Result<()> {
+        let status = runner.run_status(&check)?;
+        if status.success {
+            return Ok(());
+        }
+        if status.code == Some(1) {
+            return runner.run(&apply);
+        }
+        bail!("{}", status.diagnostics);
     }
 
     /// Applies the initial ipset and iptables rules.
@@ -206,9 +283,21 @@ impl Firewall {
     pub fn setup<R: CommandRunner>(&self, runner: &R, ssh_port: u16) -> Result<()> {
         runner.run(&self.create_ipset_command())?;
         runner.run(&self.create_ban_ipset_command())?;
-        runner.run(&self.iptables_allow_command(ssh_port))?;
-        runner.run(&self.iptables_drop_command(ssh_port))?;
-        runner.run(&self.iptables_ban_drop_command())?;
+        self.ensure_iptables_rule(
+            runner,
+            self.iptables_allow_check_command(ssh_port),
+            self.iptables_allow_command(ssh_port),
+        )?;
+        self.ensure_iptables_rule(
+            runner,
+            self.iptables_drop_check_command(ssh_port),
+            self.iptables_drop_command(ssh_port),
+        )?;
+        self.ensure_iptables_rule(
+            runner,
+            self.iptables_ban_drop_check_command(),
+            self.iptables_ban_drop_command(),
+        )?;
         Ok(())
     }
 

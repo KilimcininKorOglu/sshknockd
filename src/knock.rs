@@ -63,13 +63,12 @@ impl KnockTracker {
             .states
             .get(&packet.source_ip)
             .map_or(0, |state| state.next_step);
-        if expected > 0 {
-            if let Some(state) = self.states.get(&packet.source_ip) {
-                if now.duration_since(state.first_seen) > self.sequence_window {
-                    self.states.remove(&packet.source_ip);
-                    return self.start_or_reject(packet, now);
-                }
-            }
+        if expected > 0
+            && let Some(state) = self.states.get(&packet.source_ip)
+            && now.duration_since(state.first_seen) > self.sequence_window
+        {
+            self.states.remove(&packet.source_ip);
+            return self.start_or_reject(packet, now);
         }
         if !self.matches_step(expected, &packet) {
             self.states.remove(&packet.source_ip);

@@ -5,7 +5,7 @@ use crate::logger::AuditLogger;
 use crate::rate_limit::TokenBucketLimiter;
 use anyhow::{Context, Result};
 use socket2::{Domain, Protocol as SocketProtocol, Socket, Type};
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::io::{ErrorKind, Read};
 use std::mem::MaybeUninit;
 use std::net::{IpAddr, SocketAddr, TcpListener, UdpSocket};
@@ -21,7 +21,7 @@ pub struct Server {
     logger: AuditLogger,
     source_limiter: TokenBucketLimiter<IpAddr>,
     global_limiter: TokenBucketLimiter<&'static str>,
-    banned_sources: HashSet<IpAddr>,
+    banned_sources: HashMap<IpAddr, Instant>,
 }
 
 impl Server {
@@ -63,7 +63,7 @@ impl Server {
                 source_refill.saturating_mul(10),
                 Duration::from_secs(60),
             ),
-            banned_sources: HashSet::new(),
+            banned_sources: HashMap::new(),
         })
     }
 
@@ -174,6 +174,21 @@ impl Server {
         Ok(socket)
     }
 
+    fn expire_banned_sources(&mut self, now: Instant) {
+        self.banned_sources
+            .retain(|_, expires_at| *expires_at > now);
+    }
+
+    fn is_source_banned(&mut self, source_ip: IpAddr, now: Instant) -> bool {
+        self.expire_banned_sources(now);
+        self.banned_sources.contains_key(&source_ip)
+    }
+
+    fn remember_banned_source(&mut self, source_ip: IpAddr, now: Instant) {
+        let expires_at = now + Duration::from_secs(self.config.ban_timeout);
+        self.banned_sources.insert(source_ip, expires_at);
+    }
+
     fn process_packet(
         &mut self,
         addr: SocketAddr,
@@ -183,10 +198,10 @@ impl Server {
         runner: &SystemCommandRunner,
     ) -> Result<()> {
         let source_ip: IpAddr = addr.ip();
-        if self.banned_sources.contains(&source_ip) {
+        let now = Instant::now();
+        if self.is_source_banned(source_ip, now) {
             return Ok(());
         }
-        let now = Instant::now();
         self.logger.log(
             "packet_seen",
             &format!(
@@ -218,7 +233,7 @@ impl Server {
                 );
                 return Err(error);
             }
-            self.banned_sources.insert(source_ip);
+            self.remember_banned_source(source_ip, now);
             self.logger.log(
                 "rate_limit_ban",
                 &format!(
@@ -245,6 +260,88 @@ impl Server {
             );
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{AddressFamily, FirewallBackend, KnockSection, KnockStep};
+
+    fn test_server(ban_timeout: u64) -> Server {
+        let log_file = tempfile::NamedTempFile::new().unwrap();
+        let config = Config {
+            listen: "127.0.0.1".to_string(),
+            ssh_port: 22,
+            ipset_name: "ssh_allow".to_string(),
+            firewall_backend: FirewallBackend::Iptables,
+            address_family: AddressFamily::Ipv4,
+            sequence_window: 5,
+            ip_timeout: 10,
+            partial_state_timeout: 10,
+            max_payload_size: 512,
+            log_level: "info".to_string(),
+            log_file: log_file.path().to_string_lossy().into_owned(),
+            invalid_burst_limit: 1,
+            invalid_refill_per_minute: 1,
+            ban_timeout,
+            ban_ipset_name: "ssh_ban".to_string(),
+            knock: KnockSection {
+                sequence: vec![
+                    KnockStep {
+                        protocol: Protocol::Tcp,
+                        port: Some(7001),
+                        size: 1,
+                    },
+                    KnockStep {
+                        protocol: Protocol::Udp,
+                        port: Some(7002),
+                        size: 2,
+                    },
+                    KnockStep {
+                        protocol: Protocol::Tcp,
+                        port: Some(7003),
+                        size: 3,
+                    },
+                ],
+            },
+        };
+
+        Server::new(config).unwrap()
+    }
+
+    #[test]
+    fn keeps_source_banned_before_timeout_because_rate_limit_bans_must_fail_closed() {
+        let mut server = test_server(2);
+        let source_ip = "192.0.2.10".parse().unwrap();
+        let now = Instant::now();
+
+        server.remember_banned_source(source_ip, now);
+
+        assert!(server.is_source_banned(source_ip, now + Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn expires_source_ban_at_timeout_because_configured_ban_duration_is_finite() {
+        let mut server = test_server(2);
+        let source_ip = "192.0.2.10".parse().unwrap();
+        let now = Instant::now();
+
+        server.remember_banned_source(source_ip, now);
+
+        assert!(!server.is_source_banned(source_ip, now + Duration::from_secs(2)));
+    }
+
+    #[test]
+    fn removes_expired_source_ban_because_stale_memory_must_not_extend_ipset_timeout() {
+        let mut server = test_server(2);
+        let source_ip = "192.0.2.10".parse().unwrap();
+        let now = Instant::now();
+
+        server.remember_banned_source(source_ip, now);
+        server.expire_banned_sources(now + Duration::from_secs(2));
+
+        assert!(!server.banned_sources.contains_key(&source_ip));
     }
 }
 

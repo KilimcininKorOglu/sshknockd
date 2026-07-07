@@ -74,13 +74,13 @@ impl Server {
     /// Returns an error when sockets cannot bind or firewall commands fail.
     pub fn run(mut self) -> Result<()> {
         let runner = SystemCommandRunner;
-        self.logger.log("daemon_start", "sshknockd starting");
+        self.logger.log("daemon_start", "sshknockd starting")?;
         if let Err(error) = self.firewall.preflight(&runner) {
             self.logger
-                .log("firewall_preflight_failed", &format!("error={error}"));
+                .log("firewall_preflight_failed", &format!("error={error}"))?;
             return Err(error);
         }
-        self.logger.log("firewall_preflight", "completed");
+        self.logger.log("firewall_preflight", "completed")?;
         let mut udp_sockets = Vec::new();
         let mut tcp_listeners = Vec::new();
         let mut icmp_socket = None;
@@ -96,7 +96,7 @@ impl Server {
                     socket
                         .set_nonblocking(true)
                         .context("failed to configure UDP socket")?;
-                    self.logger.log("bind_udp", &format!("port={port}"));
+                    self.logger.log("bind_udp", &format!("port={port}"))?;
                     udp_sockets.push((port, socket));
                 }
                 Protocol::Tcp => {
@@ -109,13 +109,13 @@ impl Server {
                     listener
                         .set_nonblocking(true)
                         .context("failed to configure TCP listener")?;
-                    self.logger.log("bind_tcp", &format!("port={port}"));
+                    self.logger.log("bind_tcp", &format!("port={port}"))?;
                     tcp_listeners.push((port, listener));
                 }
                 Protocol::Icmp => {
                     if icmp_socket.is_none() {
                         icmp_socket = Some(Self::bind_icmp_socket()?);
-                        self.logger.log("bind_icmp", "enabled");
+                        self.logger.log("bind_icmp", "enabled")?;
                     }
                 }
             }
@@ -208,7 +208,7 @@ impl Server {
                 "source_ip={source_ip} protocol={protocol:?} port={} size={payload_size}",
                 port.map_or_else(|| "none".to_string(), |value| value.to_string())
             ),
-        );
+        )?;
         let outcome = self.tracker.process(
             KnockPacket {
                 source_ip,
@@ -221,7 +221,7 @@ impl Server {
         self.logger.log(
             "knock_outcome",
             &format!("source_ip={source_ip} outcome={outcome:?}"),
-        );
+        )?;
         if matches!(outcome, KnockOutcome::Rejected | KnockOutcome::Oversized)
             && (!self.source_limiter.allow(source_ip, now)
                 || !self.global_limiter.allow("invalid", now))
@@ -230,7 +230,7 @@ impl Server {
                 self.logger.log(
                     "firewall_ban_failed",
                     &format!("source_ip={source_ip} error={error}"),
-                );
+                )?;
                 return Err(error);
             }
             self.remember_banned_source(source_ip, now);
@@ -240,7 +240,7 @@ impl Server {
                     "source_ip={source_ip} ban_timeout_seconds={}",
                     self.config.ban_timeout
                 ),
-            );
+            )?;
             return Ok(());
         }
         if outcome == KnockOutcome::Accepted {
@@ -248,7 +248,7 @@ impl Server {
                 self.logger.log(
                     "firewall_allow_failed",
                     &format!("source_ip={source_ip} error={error}"),
-                );
+                )?;
                 return Err(error);
             }
             self.logger.log(
@@ -257,7 +257,7 @@ impl Server {
                     "source_ip={source_ip} allow_timeout_seconds={}",
                     self.config.ip_timeout
                 ),
-            );
+            )?;
         }
         Ok(())
     }

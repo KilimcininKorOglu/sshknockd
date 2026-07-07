@@ -69,14 +69,42 @@ jobs:
       - name: Build RPM package
         run: cargo generate-rpm
 
+      - name: Validate package outputs
+        id: package-outputs
+        run: |
+          version="$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')"
+          case "${{ matrix.arch }}" in
+            amd64) rpm_arch="x86_64" ;;
+            arm64) rpm_arch="aarch64" ;;
+            *) echo "Unsupported package architecture ${{ matrix.arch }}" >&2; exit 1 ;;
+          esac
+          deb_path="target/debian/sshknockd_${version}-1_${{ matrix.arch }}.deb"
+          rpm_path="target/generate-rpm/sshknockd-${version}-1.${rpm_arch}.rpm"
+          if [ ! -f "${deb_path}" ]; then
+            echo "Missing expected Debian package ${deb_path}" >&2
+            exit 1
+          fi
+          if [ ! -f "${rpm_path}" ]; then
+            echo "Missing expected RPM package ${rpm_path}" >&2
+            exit 1
+          fi
+          deb_count="$(find target/debian -maxdepth 1 -type f -name '*.deb' | wc -l | tr -d ' ')"
+          rpm_count="$(find target/generate-rpm -maxdepth 1 -type f -name '*.rpm' | wc -l | tr -d ' ')"
+          if [ "${deb_count}" != "1" ] || [ "${rpm_count}" != "1" ]; then
+            echo "Expected exactly one Debian and one RPM package, got deb=${deb_count} rpm=${rpm_count}" >&2
+            exit 1
+          fi
+          printf 'deb_path=%s\n' "${deb_path}" >> "${GITHUB_OUTPUT}"
+          printf 'rpm_path=%s\n' "${rpm_path}" >> "${GITHUB_OUTPUT}"
+
       - name: Upload package artifacts
         # Pinned from actions/upload-artifact@v4
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: sshknockd-packages-${{ matrix.arch }}
           path: |
-            target/debian/*.deb
-            target/generate-rpm/*.rpm
+            ${{ steps.package-outputs.outputs.deb_path }}
+            ${{ steps.package-outputs.outputs.rpm_path }}
 
   publish-release:
     name: Publish GitHub release
@@ -90,13 +118,19 @@ jobs:
         # Pinned from actions/checkout@v6
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
 
-      - name: Download package artifacts
+      - name: Download amd64 package artifacts
         # Pinned from actions/download-artifact@v6
         uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53
         with:
-          path: dist
-          pattern: sshknockd-packages-*
-          merge-multiple: true
+          name: sshknockd-packages-amd64
+          path: dist/amd64
+
+      - name: Download arm64 package artifacts
+        # Pinned from actions/download-artifact@v6
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53
+        with:
+          name: sshknockd-packages-arm64
+          path: dist/arm64
 
       - name: Prepare release notes
         run: |
@@ -119,12 +153,25 @@ jobs:
             echo "RELEASE_SIGNING_KEY_PEM secret is required"
             exit 1
           fi
-          mapfile -t package_names < <(find dist -maxdepth 1 -type f \( -name '*.deb' -o -name '*.rpm' \) -printf '%f\n' | sort)
-          if [ "${#package_names[@]}" -eq 0 ]; then
-            echo "No packages found"
+          version="${GITHUB_REF_NAME#v}"
+          packages=(
+            "dist/amd64/sshknockd_${version}-1_amd64.deb"
+            "dist/amd64/sshknockd-${version}-1.x86_64.rpm"
+            "dist/arm64/sshknockd_${version}-1_arm64.deb"
+            "dist/arm64/sshknockd-${version}-1.aarch64.rpm"
+          )
+          for package in "${packages[@]}"; do
+            if [ ! -f "${package}" ]; then
+              echo "Missing expected release package ${package}" >&2
+              exit 1
+            fi
+          done
+          package_count="$(find dist -type f \( -name '*.deb' -o -name '*.rpm' \) | wc -l | tr -d ' ')"
+          if [ "${package_count}" != "4" ]; then
+            echo "Expected exactly 4 release packages, got ${package_count}" >&2
             exit 1
           fi
-          (cd dist && sha256sum "${package_names[@]}") > dist/SHA256SUMS
+          sha256sum "${packages[@]}" > dist/SHA256SUMS
           printf '%s\n' "${RELEASE_SIGNING_KEY_PEM}" > release-signing-key.pem
           openssl pkeyutl -sign -rawin \
             -inkey release-signing-key.pem \
@@ -136,9 +183,23 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mapfile -t packages < <(find dist -maxdepth 1 -type f \( -name '*.deb' -o -name '*.rpm' -o -name 'SHA256SUMS' -o -name 'SHA256SUMS.sig' \) | sort)
-          if [ "${#packages[@]}" -eq 0 ]; then
-            echo "No packages found"
+          version="${GITHUB_REF_NAME#v}"
+          packages=(
+            "dist/amd64/sshknockd_${version}-1_amd64.deb"
+            "dist/amd64/sshknockd-${version}-1.x86_64.rpm"
+            "dist/arm64/sshknockd_${version}-1_arm64.deb"
+            "dist/arm64/sshknockd-${version}-1.aarch64.rpm"
+            "dist/SHA256SUMS"
+            "dist/SHA256SUMS.sig"
+          )
+          for package in "${packages[@]}"; do
+            if [ ! -s "${package}" ]; then
+              echo "Missing expected release asset ${package}" >&2
+              exit 1
+            fi
+          done
+          if [ "${#packages[@]}" != "6" ]; then
+            echo "Expected exactly 6 release assets, got ${#packages[@]}" >&2
             exit 1
           fi
           gh release create "${GITHUB_REF_NAME}" \

@@ -133,7 +133,7 @@ Audit log’ları izleyin:
 sudo tail -f /var/log/sshknockd/sshknockd.log
 ```
 
-Daemon, `log_file` içine SIEM odaklı audit event’leri yazar. `info` seviyesinde event’ler daemon startup, firewall preflight success veya failure, listener bind’ları, temporary SSH allow entries, rate-limit bans ve firewall command failures içerir. `debug` ve `trace` ayrıca source IP, protocol, port, packet size ve outcome içeren bounded packet observations ile knock outcomes kayıtlarını etkinleştirir. Full knock sequence loglanmaz.
+Daemon, `log_file` içine SIEM odaklı audit event’leri yazar. `info` seviyesinde event’ler daemon startup, firewall preflight success veya failure, listener bind’ları, temporary SSH allow entries, rate-limit bans ve firewall command failures içerir. `debug` ve `trace` ayrıca source IP ile redacted observation ve outcome class içeren bounded packet observations ile knock outcomes kayıtlarını etkinleştirir. Knock protocol, knock port, packet size, sequence position ve full knock sequence loglanmaz.
 
 ### Update
 

@@ -96,7 +96,7 @@ impl Server {
                     socket
                         .set_nonblocking(true)
                         .context("failed to configure UDP socket")?;
-                    self.logger.log("bind_udp", &format!("port={port}"))?;
+                    self.logger.log("bind_udp", "status=bound")?;
                     udp_sockets.push((port, socket));
                 }
                 Protocol::Tcp => {
@@ -109,7 +109,7 @@ impl Server {
                     listener
                         .set_nonblocking(true)
                         .context("failed to configure TCP listener")?;
-                    self.logger.log("bind_tcp", &format!("port={port}"))?;
+                    self.logger.log("bind_tcp", "status=bound")?;
                     tcp_listeners.push((port, listener));
                 }
                 Protocol::Icmp => {
@@ -194,28 +194,32 @@ impl Server {
             || self.config.log_level.eq_ignore_ascii_case("trace")
     }
 
+    fn redacted_outcome(outcome: &KnockOutcome) -> &'static str {
+        match outcome {
+            KnockOutcome::Accepted => "accepted",
+            KnockOutcome::Progress { .. } => "progress",
+            KnockOutcome::Rejected => "rejected",
+            KnockOutcome::Oversized => "oversized",
+        }
+    }
+
     fn log_packet_telemetry(
         &mut self,
         source_ip: IpAddr,
-        protocol: Protocol,
-        port: Option<u16>,
-        payload_size: usize,
         outcome: &KnockOutcome,
         now: Instant,
     ) -> Result<()> {
         if !self.packet_telemetry_enabled() || !self.packet_telemetry_limiter.allow("packet", now) {
             return Ok(());
         }
-        self.logger.log(
-            "packet_seen",
-            &format!(
-                "source_ip={source_ip} protocol={protocol:?} port={} size={payload_size}",
-                port.map_or_else(|| "none".to_string(), |value| value.to_string())
-            ),
-        )?;
+        self.logger
+            .log("packet_seen", &format!("source_ip={source_ip} observed=true"))?;
         self.logger.log(
             "knock_outcome",
-            &format!("source_ip={source_ip} outcome={outcome:?}"),
+            &format!(
+                "source_ip={source_ip} outcome={}",
+                Self::redacted_outcome(outcome)
+            ),
         )?;
         Ok(())
     }
@@ -262,7 +266,7 @@ impl Server {
             )?;
             return Ok(());
         }
-        self.log_packet_telemetry(source_ip, protocol, port, payload_size, &outcome, now)?;
+        self.log_packet_telemetry(source_ip, &outcome, now)?;
         if outcome == KnockOutcome::Accepted {
             if let Err(error) = self.firewall.add_ip(runner, source_ip) {
                 self.logger.log(
@@ -424,7 +428,12 @@ mod tests {
         let content = fs::read_to_string(log_file.path())?;
         assert!(content.contains("event=packet_seen"));
         assert!(content.contains("event=knock_outcome"));
-        assert!(content.contains("outcome=Progress"));
+        assert!(content.contains("outcome=progress"));
+        assert!(!content.contains("protocol="));
+        assert!(!content.contains("port=7001"));
+        assert!(!content.contains("size=1"));
+        assert!(!content.contains("next_step"));
+        assert!(!content.contains("Progress {"));
         Ok(())
     }
 

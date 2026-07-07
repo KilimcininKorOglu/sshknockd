@@ -1,7 +1,7 @@
 use crate::config::{AddressFamily, FirewallBackend, validate_ipset_name};
 use anyhow::{Context, Result, bail};
 use std::net::IpAddr;
-use std::process::Command;
+use std::process::{Command, Output};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandSpec {
@@ -21,17 +21,47 @@ pub trait CommandRunner {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct SystemCommandRunner;
 
+const COMMAND_OUTPUT_LIMIT_BYTES: usize = 4096;
+
 impl CommandRunner for SystemCommandRunner {
     fn run(&self, spec: &CommandSpec) -> Result<()> {
-        let status = Command::new(&spec.program)
+        let output = Command::new(&spec.program)
             .args(&spec.args)
-            .status()
+            .output()
             .with_context(|| format!("failed to execute {}", spec.program))?;
-        if !status.success() {
-            bail!("command {} exited unsuccessfully", spec.program);
+        if !output.status.success() {
+            bail!("{}", format_command_failure(spec, &output));
         }
         Ok(())
     }
+}
+
+fn format_command_failure(spec: &CommandSpec, output: &Output) -> String {
+    format!(
+        "command {} exited unsuccessfully: status={}, args={:?}, stdout={:?}, stderr={:?}",
+        spec.program,
+        output.status,
+        spec.args,
+        bounded_command_output(&output.stdout),
+        bounded_command_output(&output.stderr)
+    )
+}
+
+fn bounded_command_output(bytes: &[u8]) -> String {
+    let shown = if bytes.len() > COMMAND_OUTPUT_LIMIT_BYTES {
+        &bytes[..COMMAND_OUTPUT_LIMIT_BYTES]
+    } else {
+        bytes
+    };
+    let mut text = String::from_utf8_lossy(shown).trim().to_string();
+    if bytes.len() > COMMAND_OUTPUT_LIMIT_BYTES {
+        text.push_str(&format!(
+            " <truncated: showing first {} of {} bytes>",
+            COMMAND_OUTPUT_LIMIT_BYTES,
+            bytes.len()
+        ));
+    }
+    text
 }
 
 #[derive(Debug, Clone)]

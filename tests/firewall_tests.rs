@@ -1,6 +1,6 @@
 use anyhow::Result;
 use ssh_knock::config::{AddressFamily, FirewallBackend};
-use ssh_knock::firewall::{CommandRunner, CommandSpec, Firewall};
+use ssh_knock::firewall::{CommandRunner, CommandSpec, Firewall, SystemCommandRunner};
 use std::cell::RefCell;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
@@ -14,6 +14,50 @@ impl CommandRunner for RecordingRunner {
         self.commands.borrow_mut().push(spec.clone());
         Ok(())
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn system_runner_reports_status_stdout_and_stderr_because_firewall_failures_need_diagnostics() {
+    let runner = SystemCommandRunner;
+    let error = runner
+        .run(&CommandSpec {
+            program: "/bin/sh".to_string(),
+            args: vec![
+                "-c".to_string(),
+                "printf 'visible stdout'; printf 'visible stderr' >&2; exit 7".to_string(),
+            ],
+        })
+        .expect_err("command should fail");
+    let message = error.to_string();
+
+    assert!(message.contains("status="));
+    assert!(message.contains("exit status: 7") || message.contains("7"));
+    assert!(message.contains("stdout="));
+    assert!(message.contains("visible stdout"));
+    assert!(message.contains("stderr="));
+    assert!(message.contains("visible stderr"));
+}
+
+#[cfg(unix)]
+#[test]
+fn system_runner_bounds_output_because_firewall_errors_must_not_be_unbounded() {
+    let runner = SystemCommandRunner;
+    let error = runner
+        .run(&CommandSpec {
+            program: "/bin/sh".to_string(),
+            args: vec![
+                "-c".to_string(),
+                "i=0; while [ \"$i\" -lt 5000 ]; do printf o; printf e >&2; i=$((i + 1)); done; exit 9".to_string(),
+            ],
+        })
+        .expect_err("command should fail");
+    let message = error.to_string();
+
+    assert!(message.contains("truncated"));
+    assert!(message.contains("stdout="));
+    assert!(message.contains("stderr="));
+    assert!(message.len() < 10_000);
 }
 
 #[test]

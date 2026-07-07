@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
+use ed25519_dalek::{Signature, VerifyingKey};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use ssh_knock::config::{Config, Protocol};
@@ -164,12 +165,17 @@ fn print_script(config: &Config, server: &str) -> Result<()> {
 
 const GITHUB_OWNER: &str = "KilimcininKoroglu";
 const GITHUB_REPO: &str = "sshknockd";
+const CHECKSUM_MANIFEST: &str = "SHA256SUMS";
+const CHECKSUM_SIGNATURE: &str = "SHA256SUMS.sig";
+const RELEASE_SIGNING_PUBLIC_KEY: [u8; 32] = [
+    0x5a, 0x2a, 0x99, 0xc1, 0x95, 0xe6, 0xeb, 0x89, 0xfb, 0xe9, 0x0c, 0xbf, 0x05, 0x19, 0x41, 0xa2,
+    0x98, 0xaa, 0x75, 0xc4, 0x21, 0xf8, 0x44, 0xbb, 0xab, 0x86, 0xd7, 0x98, 0x04, 0x7d, 0x34, 0xbe,
+];
 
 #[derive(Debug, Deserialize)]
 struct ReleaseAsset {
     name: String,
     browser_download_url: String,
-    digest: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -188,9 +194,17 @@ fn update_from_latest_release() -> Result<()> {
     let extension = detect_package_extension()?;
     let arch = detect_architecture()?;
     let asset = select_release_asset(&release, extension, arch)?;
+    let manifest_asset = select_named_release_asset(&release, CHECKSUM_MANIFEST)?;
+    let signature_asset = select_named_release_asset(&release, CHECKSUM_SIGNATURE)?;
     let package_path = PathBuf::from(format!("/tmp/sshknockd-update.{extension}"));
+    let manifest_path = PathBuf::from("/tmp/sshknockd-SHA256SUMS");
+    let signature_path = PathBuf::from("/tmp/sshknockd-SHA256SUMS.sig");
     download_package(&asset.browser_download_url, &package_path)?;
-    verify_package_digest(asset, &package_path)?;
+    download_package(&manifest_asset.browser_download_url, &manifest_path)?;
+    download_package(&signature_asset.browser_download_url, &signature_path)?;
+    verify_package_against_signed_manifest(asset, &package_path, &manifest_path, &signature_path)?;
+    fs::remove_file(&manifest_path).ok();
+    fs::remove_file(&signature_path).ok();
     install_package(&package_path, extension)?;
     restart_service()?;
     fs::remove_file(&package_path).ok();
@@ -272,6 +286,17 @@ fn select_release_asset<'a>(
         })
 }
 
+fn select_named_release_asset<'a>(
+    release: &'a GitHubRelease,
+    name: &str,
+) -> Result<&'a ReleaseAsset> {
+    release
+        .assets
+        .iter()
+        .find(|asset| asset.name == name)
+        .with_context(|| format!("release does not contain required asset {name}"))
+}
+
 fn package_arch_names(extension: &str, arch: &str) -> Result<Vec<&'static str>> {
     match (extension, arch) {
         ("deb", "amd64") => Ok(vec!["amd64"]),
@@ -301,22 +326,28 @@ fn download_package(url: &str, package_path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn verify_package_digest(asset: &ReleaseAsset, package_path: &Path) -> Result<()> {
-    let expected = asset
-        .digest
-        .as_deref()
-        .with_context(|| format!("release asset {} does not contain a digest", asset.name))?;
-    let expected_hash = expected
-        .strip_prefix("sha256:")
-        .with_context(|| format!("release asset {} digest is not sha256", asset.name))?;
-    if expected_hash.len() != 64
-        || !expected_hash
-            .chars()
-            .all(|character| character.is_ascii_hexdigit())
-    {
-        bail!("release asset {} has an invalid sha256 digest", asset.name);
-    }
-
+fn verify_package_against_signed_manifest(
+    asset: &ReleaseAsset,
+    package_path: &Path,
+    manifest_path: &Path,
+    signature_path: &Path,
+) -> Result<()> {
+    let manifest = fs::read(manifest_path).with_context(|| {
+        format!(
+            "failed to read checksum manifest {}",
+            manifest_path.display()
+        )
+    })?;
+    let signature = fs::read(signature_path).with_context(|| {
+        format!(
+            "failed to read checksum signature {}",
+            signature_path.display()
+        )
+    })?;
+    verify_manifest_signature(&manifest, &signature)?;
+    let manifest =
+        std::str::from_utf8(&manifest).context("checksum manifest is not valid UTF-8")?;
+    let expected_hash = expected_digest_from_manifest(manifest, &asset.name)?;
     let package = fs::read(package_path).with_context(|| {
         format!(
             "failed to read downloaded package {}",
@@ -324,11 +355,56 @@ fn verify_package_digest(asset: &ReleaseAsset, package_path: &Path) -> Result<()
         )
     })?;
     let actual_hash = format!("{:x}", Sha256::digest(&package));
-    if !actual_hash.eq_ignore_ascii_case(expected_hash) {
+    if !actual_hash.eq_ignore_ascii_case(&expected_hash) {
         bail!(
             "downloaded package digest mismatch for {}: expected sha256:{expected_hash}, got sha256:{actual_hash}",
             asset.name
         );
+    }
+    Ok(())
+}
+
+fn verify_manifest_signature(manifest: &[u8], signature: &[u8]) -> Result<()> {
+    let verifying_key = VerifyingKey::from_bytes(&RELEASE_SIGNING_PUBLIC_KEY)
+        .context("release signing public key is invalid")?;
+    let signature =
+        Signature::from_slice(signature).context("release checksum signature is invalid")?;
+    verifying_key
+        .verify_strict(manifest, &signature)
+        .context("release checksum signature verification failed")
+}
+
+fn expected_digest_from_manifest(manifest: &str, package_name: &str) -> Result<String> {
+    let mut matched_digest = None;
+    for line in manifest.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let mut parts = trimmed.split_whitespace();
+        let Some(digest) = parts.next() else {
+            continue;
+        };
+        let Some(name) = parts.next() else {
+            bail!("checksum manifest contains a malformed line");
+        };
+        if parts.next().is_some() {
+            bail!("checksum manifest contains a malformed line");
+        }
+        let name = name.strip_prefix('*').unwrap_or(name);
+        if name == package_name {
+            validate_sha256_hex(digest)?;
+            if matched_digest.replace(digest.to_string()).is_some() {
+                bail!("checksum manifest contains duplicate entries for {package_name}");
+            }
+        }
+    }
+    matched_digest.with_context(|| format!("checksum manifest does not contain {package_name}"))
+}
+
+fn validate_sha256_hex(value: &str) -> Result<()> {
+    if value.len() != 64 || !value.chars().all(|character| character.is_ascii_hexdigit()) {
+        bail!("checksum manifest contains an invalid sha256 digest");
     }
     Ok(())
 }
@@ -366,4 +442,126 @@ fn restart_service() -> Result<()> {
         bail!("systemctl restart sshknockd exited unsuccessfully");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const PACKAGE_NAME: &str = "sshknockd_0.2.1_amd64.deb";
+    const PACKAGE_BYTES: &[u8] = b"package bytes\n";
+    const VALID_MANIFEST: &str = "40fa264148fd4b9e9bea4447cc4504f68832044997ab4921af95356d05556031  sshknockd_0.2.1_amd64.deb\n";
+    const VALID_SIGNATURE: [u8; 64] = [
+        0x29, 0x77, 0x17, 0xa2, 0x1d, 0x30, 0xa6, 0x68, 0xab, 0xe9, 0xff, 0x5a, 0x79, 0xc8, 0x02,
+        0x1b, 0x22, 0xbf, 0x08, 0xbb, 0x6a, 0x36, 0x4f, 0x85, 0x57, 0xda, 0x38, 0xbe, 0xe4, 0x90,
+        0xd0, 0x18, 0x0c, 0x8c, 0xbd, 0x28, 0x6c, 0xd7, 0xe1, 0xa1, 0xf9, 0x14, 0x1d, 0x73, 0x54,
+        0x46, 0x83, 0xd7, 0x4b, 0x66, 0x17, 0x59, 0xd6, 0x30, 0x75, 0xd3, 0xd2, 0x43, 0x97, 0x44,
+        0xe4, 0xa5, 0x0f, 0x07,
+    ];
+
+    #[test]
+    fn verifies_manifest_signature_for_release_checksums() {
+        verify_manifest_signature(VALID_MANIFEST.as_bytes(), &VALID_SIGNATURE).unwrap();
+    }
+
+    #[test]
+    fn rejects_invalid_manifest_signature_before_trusting_digest() {
+        let mut signature = VALID_SIGNATURE;
+        signature[0] ^= 1;
+
+        assert!(verify_manifest_signature(VALID_MANIFEST.as_bytes(), &signature).is_err());
+    }
+
+    #[test]
+    fn extracts_exact_package_digest_from_manifest() {
+        let digest = expected_digest_from_manifest(VALID_MANIFEST, PACKAGE_NAME).unwrap();
+
+        assert_eq!(
+            digest,
+            "40fa264148fd4b9e9bea4447cc4504f68832044997ab4921af95356d05556031"
+        );
+    }
+
+    #[test]
+    fn rejects_missing_package_entry_in_manifest() {
+        let result = expected_digest_from_manifest(VALID_MANIFEST, "missing.deb");
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn rejects_duplicate_package_entries_in_manifest() {
+        let manifest = format!("{VALID_MANIFEST}{VALID_MANIFEST}");
+
+        let result = expected_digest_from_manifest(&manifest, PACKAGE_NAME);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn rejects_malformed_digest_in_manifest() {
+        let manifest = format!("not-a-sha256  {PACKAGE_NAME}\n");
+
+        let result = expected_digest_from_manifest(&manifest, PACKAGE_NAME);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn matches_manifest_package_name_exactly() {
+        let manifest = format!(
+            "40fa264148fd4b9e9bea4447cc4504f68832044997ab4921af95356d05556031  evil-{PACKAGE_NAME}\n"
+        );
+
+        let result = expected_digest_from_manifest(&manifest, PACKAGE_NAME);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn detects_package_digest_mismatch_after_signed_manifest_is_valid() {
+        let temp = tempfile::tempdir().unwrap();
+        let package_path = temp.path().join(PACKAGE_NAME);
+        let manifest_path = temp.path().join(CHECKSUM_MANIFEST);
+        let signature_path = temp.path().join(CHECKSUM_SIGNATURE);
+        fs::write(&package_path, b"tampered package\n").unwrap();
+        fs::write(&manifest_path, VALID_MANIFEST).unwrap();
+        fs::write(&signature_path, VALID_SIGNATURE).unwrap();
+        let asset = ReleaseAsset {
+            name: PACKAGE_NAME.to_string(),
+            browser_download_url: "https://example.invalid/package.deb".to_string(),
+        };
+
+        let result = verify_package_against_signed_manifest(
+            &asset,
+            &package_path,
+            &manifest_path,
+            &signature_path,
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn accepts_package_when_signed_manifest_digest_matches() {
+        let temp = tempfile::tempdir().unwrap();
+        let package_path = temp.path().join(PACKAGE_NAME);
+        let manifest_path = temp.path().join(CHECKSUM_MANIFEST);
+        let signature_path = temp.path().join(CHECKSUM_SIGNATURE);
+        fs::write(&package_path, PACKAGE_BYTES).unwrap();
+        fs::write(&manifest_path, VALID_MANIFEST).unwrap();
+        fs::write(&signature_path, VALID_SIGNATURE).unwrap();
+        let asset = ReleaseAsset {
+            name: PACKAGE_NAME.to_string(),
+            browser_download_url: "https://example.invalid/package.deb".to_string(),
+        };
+
+        verify_package_against_signed_manifest(
+            &asset,
+            &package_path,
+            &manifest_path,
+            &signature_path,
+        )
+        .unwrap();
+    }
 }

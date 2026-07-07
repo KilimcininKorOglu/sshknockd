@@ -157,10 +157,10 @@ jobs:
           fi
           version="${GITHUB_REF_NAME#v}"
           packages=(
-            "dist/amd64/sshknockd_${version}-1_amd64.deb"
-            "dist/amd64/sshknockd-${version}-1.x86_64.rpm"
-            "dist/arm64/sshknockd_${version}-1_arm64.deb"
-            "dist/arm64/sshknockd-${version}-1.aarch64.rpm"
+            "dist/amd64/debian/sshknockd_${version}-1_amd64.deb"
+            "dist/amd64/generate-rpm/sshknockd-${version}-1.x86_64.rpm"
+            "dist/arm64/debian/sshknockd_${version}-1_arm64.deb"
+            "dist/arm64/generate-rpm/sshknockd-${version}-1.aarch64.rpm"
           )
           for package in "${packages[@]}"; do
             if [ ! -f "${package}" ]; then
@@ -187,10 +187,10 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#v}"
           packages=(
-            "dist/amd64/sshknockd_${version}-1_amd64.deb"
-            "dist/amd64/sshknockd-${version}-1.x86_64.rpm"
-            "dist/arm64/sshknockd_${version}-1_arm64.deb"
-            "dist/arm64/sshknockd-${version}-1.aarch64.rpm"
+            "dist/amd64/debian/sshknockd_${version}-1_amd64.deb"
+            "dist/amd64/generate-rpm/sshknockd-${version}-1.x86_64.rpm"
+            "dist/arm64/debian/sshknockd_${version}-1_arm64.deb"
+            "dist/arm64/generate-rpm/sshknockd-${version}-1.aarch64.rpm"
             "dist/SHA256SUMS"
             "dist/SHA256SUMS.sig"
           )

@@ -25,6 +25,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Validate release metadata
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          tag_version="${GITHUB_REF_NAME#v}"
+          cargo_version="$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')"
+          if [ "${cargo_version}" != "${tag_version}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match Cargo.toml package version ${cargo_version}" >&2
+            exit 1
+          fi
+          if ! grep -Eq "^## \\[${tag_version}\\]" CHANGELOG.md; then
+            echo "CHANGELOG.md is missing release heading for ${tag_version}" >&2
+            exit 1
+          fi
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -36,6 +50,16 @@ jobs:
 
       - name: Build release binary
         run: cargo build --release --locked
+
+      - name: Validate compiled binary version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          tag_version="${GITHUB_REF_NAME#v}"
+          binary_version="$(target/release/sshknockd version)"
+          if [ "${binary_version}" != "${tag_version}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match compiled binary version ${binary_version}" >&2
+            exit 1
+          fi
 
       - name: Build Debian package
         run: cargo deb --no-build

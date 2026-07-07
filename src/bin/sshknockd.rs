@@ -45,6 +45,7 @@ enum CommandKind {
     /// Print shell commands that reproduce the configured knock sequence without a helper binary.
     PrintScript {
         /// Server hostname or IP address used in the generated shell commands.
+        #[arg(allow_hyphen_values = true)]
         server: String,
     },
     /// Print a short summary of the loaded configuration.
@@ -137,29 +138,49 @@ fn send_knock(config: &Config, server: &str) -> Result<()> {
     Ok(())
 }
 
+fn validate_print_script_server(server: &str) -> Result<()> {
+    if server.is_empty() {
+        bail!("server must not be empty");
+    }
+    if server.starts_with('-') {
+        bail!("server must not start with '-'");
+    }
+    if server.chars().any(char::is_control) {
+        bail!("server must not contain control characters");
+    }
+    Ok(())
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
 fn print_script(config: &Config, server: &str) -> Result<()> {
+    validate_print_script_server(server)?;
+    let quoted_server = shell_quote(server);
+    let quoted_ssh_target = shell_quote(&format!("user@{server}"));
     for step in &config.knock.sequence {
         match step.protocol {
             Protocol::Udp => {
                 let port = step.port.context("validated udp step has port")?;
                 println!(
-                    "printf '%0{}s' '' | tr ' ' K | nc -u -w1 {server} {port}",
+                    "printf '%0{}s' '' | tr ' ' K | nc -u -w1 {quoted_server} {port}",
                     step.size
                 );
             }
             Protocol::Tcp => {
                 let port = step.port.context("validated tcp step has port")?;
                 println!(
-                    "printf '%0{}s' '' | tr ' ' K | nc -w1 {server} {port}",
+                    "printf '%0{}s' '' | tr ' ' K | nc -w1 {quoted_server} {port}",
                     step.size
                 );
             }
             Protocol::Icmp => {
-                println!("ping -c 1 -s {} {server}", step.size);
+                println!("ping -c 1 -s {} {quoted_server}", step.size);
             }
         }
     }
-    println!("ssh -p {} user@{server}", config.ssh_port);
+    println!("ssh -p {} {quoted_ssh_target}", config.ssh_port);
     Ok(())
 }
 

@@ -47,7 +47,7 @@ Sends the configured TCP or UDP knock sequence to the server.
 Sends the configured TCP or UDP knock sequence, waits briefly, then runs ssh with the configured port.
 .TP
 .B print-script
-Prints shell commands that reproduce the configured sequence without a helper binary.
+Prints shell commands that reproduce the configured sequence without a helper binary. The server argument is shell-quoted, and unsafe values are rejected.
 .TP
 .B config
 Prints a short summary of the loaded configuration.

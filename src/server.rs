@@ -21,6 +21,7 @@ pub struct Server {
     logger: AuditLogger,
     source_limiter: TokenBucketLimiter<IpAddr>,
     global_limiter: TokenBucketLimiter<&'static str>,
+    packet_telemetry_limiter: TokenBucketLimiter<&'static str>,
     banned_sources: HashMap<IpAddr, Instant>,
 }
 
@@ -59,6 +60,11 @@ impl Server {
                 Duration::from_secs(60),
             ),
             global_limiter: TokenBucketLimiter::new(
+                source_burst.saturating_mul(10),
+                source_refill.saturating_mul(10),
+                Duration::from_secs(60),
+            ),
+            packet_telemetry_limiter: TokenBucketLimiter::new(
                 source_burst.saturating_mul(10),
                 source_refill.saturating_mul(10),
                 Duration::from_secs(60),
@@ -189,6 +195,37 @@ impl Server {
         self.banned_sources.insert(source_ip, expires_at);
     }
 
+    fn packet_telemetry_enabled(&self) -> bool {
+        self.config.log_level.eq_ignore_ascii_case("debug")
+            || self.config.log_level.eq_ignore_ascii_case("trace")
+    }
+
+    fn log_packet_telemetry(
+        &mut self,
+        source_ip: IpAddr,
+        protocol: Protocol,
+        port: Option<u16>,
+        payload_size: usize,
+        outcome: &KnockOutcome,
+        now: Instant,
+    ) -> Result<()> {
+        if !self.packet_telemetry_enabled() || !self.packet_telemetry_limiter.allow("packet", now) {
+            return Ok(());
+        }
+        self.logger.log(
+            "packet_seen",
+            &format!(
+                "source_ip={source_ip} protocol={protocol:?} port={} size={payload_size}",
+                port.map_or_else(|| "none".to_string(), |value| value.to_string())
+            ),
+        )?;
+        self.logger.log(
+            "knock_outcome",
+            &format!("source_ip={source_ip} outcome={outcome:?}"),
+        )?;
+        Ok(())
+    }
+
     fn process_packet(
         &mut self,
         addr: SocketAddr,
@@ -202,26 +239,15 @@ impl Server {
         if self.is_source_banned(source_ip, now) {
             return Ok(());
         }
-        self.logger.log(
-            "packet_seen",
-            &format!(
-                "source_ip={source_ip} protocol={protocol:?} port={} size={payload_size}",
-                port.map_or_else(|| "none".to_string(), |value| value.to_string())
-            ),
-        )?;
         let outcome = self.tracker.process(
             KnockPacket {
                 source_ip,
-                protocol,
+                protocol: protocol.clone(),
                 port,
                 payload_size,
             },
             now,
         );
-        self.logger.log(
-            "knock_outcome",
-            &format!("source_ip={source_ip} outcome={outcome:?}"),
-        )?;
         if matches!(outcome, KnockOutcome::Rejected | KnockOutcome::Oversized)
             && (!self.source_limiter.allow(source_ip, now)
                 || !self.global_limiter.allow("invalid", now))
@@ -243,6 +269,7 @@ impl Server {
             )?;
             return Ok(());
         }
+        self.log_packet_telemetry(source_ip, protocol, port, payload_size, &outcome, now)?;
         if outcome == KnockOutcome::Accepted {
             if let Err(error) = self.firewall.add_ip(runner, source_ip) {
                 self.logger.log(
@@ -287,9 +314,18 @@ pub fn read_tcp_knock(
 mod tests {
     use super::*;
     use crate::config::{AddressFamily, FirewallBackend, KnockSection, KnockStep};
+    use std::fs;
 
-    fn test_server(ban_timeout: u64) -> Server {
-        let log_file = tempfile::NamedTempFile::new().unwrap();
+    fn test_server(ban_timeout: u64) -> Result<Server> {
+        let (server, _log_file) = test_server_with_log_level("info", ban_timeout)?;
+        Ok(server)
+    }
+
+    fn test_server_with_log_level(
+        log_level: &str,
+        ban_timeout: u64,
+    ) -> Result<(Server, tempfile::NamedTempFile)> {
+        let log_file = tempfile::NamedTempFile::new()?;
         let config = Config {
             listen: "127.0.0.1".to_string(),
             ssh_port: 22,
@@ -300,7 +336,7 @@ mod tests {
             ip_timeout: 10,
             partial_state_timeout: 10,
             max_payload_size: 512,
-            log_level: "info".to_string(),
+            log_level: log_level.to_string(),
             log_file: log_file.path().to_string_lossy().into_owned(),
             invalid_burst_limit: 1,
             invalid_refill_per_minute: 1,
@@ -327,40 +363,112 @@ mod tests {
             },
         };
 
-        Server::new(config).unwrap()
+        Ok((Server::new(config)?, log_file))
+    }
+
+    fn process_partial_knock(server: &mut Server, source_ip: &str) -> Result<()> {
+        let addr = SocketAddr::new(source_ip.parse()?, 12_345);
+        let runner = SystemCommandRunner;
+        server.process_packet(addr, Protocol::Tcp, Some(7001), 1, &runner)
+    }
+
+    fn count_packet_telemetry(content: &str) -> usize {
+        content
+            .lines()
+            .filter(|line| {
+                line.contains("event=packet_seen") || line.contains("event=knock_outcome")
+            })
+            .count()
     }
 
     #[test]
-    fn keeps_source_banned_before_timeout_because_rate_limit_bans_must_fail_closed() {
-        let mut server = test_server(2);
-        let source_ip = "192.0.2.10".parse().unwrap();
+    fn info_suppresses_packet_telemetry_because_default_logs_must_not_be_high_volume() -> Result<()>
+    {
+        let (mut server, log_file) = test_server_with_log_level("info", 2)?;
+
+        process_partial_knock(&mut server, "192.0.2.10")?;
+
+        let content = fs::read_to_string(log_file.path())?;
+        assert!(!content.contains("event=packet_seen"));
+        assert!(!content.contains("event=knock_outcome"));
+        Ok(())
+    }
+
+    #[test]
+    fn debug_writes_packet_telemetry_because_verbose_logs_need_packet_observability() -> Result<()>
+    {
+        let (mut server, log_file) = test_server_with_log_level("debug", 2)?;
+
+        process_partial_knock(&mut server, "192.0.2.11")?;
+
+        let content = fs::read_to_string(log_file.path())?;
+        assert!(content.contains("event=packet_seen"));
+        assert!(content.contains("event=knock_outcome"));
+        assert!(content.contains("outcome=Progress"));
+        Ok(())
+    }
+
+    #[test]
+    fn trace_writes_packet_telemetry_because_trace_uses_the_verbose_packet_path() -> Result<()> {
+        let (mut server, log_file) = test_server_with_log_level("trace", 2)?;
+
+        process_partial_knock(&mut server, "192.0.2.12")?;
+
+        let content = fs::read_to_string(log_file.path())?;
+        assert!(content.contains("event=packet_seen"));
+        assert!(content.contains("event=knock_outcome"));
+        Ok(())
+    }
+
+    #[test]
+    fn debug_packet_telemetry_is_bounded_because_packet_logs_must_not_grow_unbounded() -> Result<()>
+    {
+        let (mut server, log_file) = test_server_with_log_level("debug", 2)?;
+
+        for offset in 0..12 {
+            process_partial_knock(&mut server, &format!("192.0.2.{}", 20 + offset))?;
+        }
+
+        let content = fs::read_to_string(log_file.path())?;
+        assert_eq!(count_packet_telemetry(&content), 20);
+        Ok(())
+    }
+
+    #[test]
+    fn keeps_source_banned_before_timeout_because_rate_limit_bans_must_fail_closed() -> Result<()> {
+        let mut server = test_server(2)?;
+        let source_ip = "192.0.2.10".parse()?;
         let now = Instant::now();
 
         server.remember_banned_source(source_ip, now);
 
         assert!(server.is_source_banned(source_ip, now + Duration::from_secs(1)));
+        Ok(())
     }
 
     #[test]
-    fn expires_source_ban_at_timeout_because_configured_ban_duration_is_finite() {
-        let mut server = test_server(2);
-        let source_ip = "192.0.2.10".parse().unwrap();
+    fn expires_source_ban_at_timeout_because_configured_ban_duration_is_finite() -> Result<()> {
+        let mut server = test_server(2)?;
+        let source_ip = "192.0.2.10".parse()?;
         let now = Instant::now();
 
         server.remember_banned_source(source_ip, now);
 
         assert!(!server.is_source_banned(source_ip, now + Duration::from_secs(2)));
+        Ok(())
     }
 
     #[test]
-    fn removes_expired_source_ban_because_stale_memory_must_not_extend_ipset_timeout() {
-        let mut server = test_server(2);
-        let source_ip = "192.0.2.10".parse().unwrap();
+    fn removes_expired_source_ban_because_stale_memory_must_not_extend_ipset_timeout() -> Result<()>
+    {
+        let mut server = test_server(2)?;
+        let source_ip = "192.0.2.10".parse()?;
         let now = Instant::now();
 
         server.remember_banned_source(source_ip, now);
         server.expire_banned_sources(now + Duration::from_secs(2));
 
         assert!(!server.banned_sources.contains_key(&source_ip));
+        Ok(())
     }
 }

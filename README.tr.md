@@ -38,7 +38,7 @@ cargo test
 | `ip_timeout`                |                               `10` | Başarılı knock yapan source IP adresinin ipset içinde izinli kalacağı saniye.          |
 | `partial_state_timeout`     |                               `10` | Eksik per-source knock state temizlenmeden önce beklenecek saniye.                     |
 | `max_payload_size`          |                              `512` | Packet oversized sayılmadan önce kabul edilen maksimum knock payload size.             |
-| `log_level`                 |                             `info` | Operatörler ve ilerideki structured log filtering için ayrılmış verbosity ayarı.       |
+| `log_level`                 |                             `info` | Audit verbosity. `info` security state change’leri loglar; `debug` ve `trace` bounded packet telemetry ekler. |
 | `log_file`                  | `/var/log/sshknockd/sshknockd.log` | SIEM odaklı audit log dosya yolu.                                                      |
 | `invalid_burst_limit`       |                               `20` | Ban mantığı tetiklenmeden önce source başına izin verilen invalid packet burst değeri. |
 | `invalid_refill_per_minute` |                               `10` | Source başına her dakika geri eklenen invalid packet hakkı.                            |
@@ -133,7 +133,7 @@ Audit log’ları izleyin:
 sudo tail -f /var/log/sshknockd/sshknockd.log
 ```
 
-Daemon, `log_file` içine SIEM odaklı audit event’leri yazar. Event’ler daemon startup, firewall preflight success veya failure, listener bind’ları, packet observations, knock outcomes, temporary SSH allow entries, rate-limit bans ve firewall command failures içerir. Log’lar source IP, protocol, port, packet size ve outcome içerir, fakat full knock sequence loglanmaz.
+Daemon, `log_file` içine SIEM odaklı audit event’leri yazar. `info` seviyesinde event’ler daemon startup, firewall preflight success veya failure, listener bind’ları, temporary SSH allow entries, rate-limit bans ve firewall command failures içerir. `debug` ve `trace` ayrıca source IP, protocol, port, packet size ve outcome içeren bounded packet observations ile knock outcomes kayıtlarını etkinleştirir. Full knock sequence loglanmaz.
 
 ### Update
 

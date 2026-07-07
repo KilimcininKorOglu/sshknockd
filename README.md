@@ -38,7 +38,7 @@ See [sshknockd.toml](sshknockd.toml).
 | `ip_timeout`                |                               `10` | Seconds that a successfully knocking source IP remains allowed in ipset.                    |
 | `partial_state_timeout`     |                               `10` | Seconds before incomplete per-source knock state is removed.                                |
 | `max_payload_size`          |                              `512` | Maximum accepted knock payload size before the packet is treated as oversized.              |
-| `log_level`                 |                             `info` | Reserved verbosity setting for operators and future structured log filtering.               |
+| `log_level`                 |                             `info` | Audit verbosity. `info` logs security state changes; `debug` and `trace` add bounded packet telemetry. |
 | `log_file`                  | `/var/log/sshknockd/sshknockd.log` | SIEM-oriented audit log file path.                                                          |
 | `invalid_burst_limit`       |                               `20` | Invalid packet burst count allowed per source before ban logic is triggered.                |
 | `invalid_refill_per_minute` |                               `10` | Invalid packet allowance restored per source every minute.                                  |
@@ -133,7 +133,7 @@ Check audit logs:
 sudo tail -f /var/log/sshknockd/sshknockd.log
 ```
 
-The daemon writes SIEM-oriented audit events to `log_file`. Events include daemon startup, firewall preflight success or failure, listener binds, packet observations, knock outcomes, temporary SSH allow entries, rate-limit bans, and firewall command failures. Logs include source IP, protocol, port, packet size, and outcome, but do not log the full knock sequence.
+The daemon writes SIEM-oriented audit events to `log_file`. At `info`, events include daemon startup, firewall preflight success or failure, listener binds, temporary SSH allow entries, rate-limit bans, and firewall command failures. `debug` and `trace` additionally enable bounded packet observations and knock outcomes with source IP, protocol, port, packet size, and outcome. Logs do not include the full knock sequence.
 
 ### Update
 

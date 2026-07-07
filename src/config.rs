@@ -34,6 +34,7 @@ pub enum AddressFamily {
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct KnockStep {
     pub protocol: Protocol,
     pub port: Option<u16>,
@@ -41,11 +42,13 @@ pub struct KnockStep {
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct KnockSection {
     pub sequence: Vec<KnockStep>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     pub listen: String,
     pub ssh_port: u16,

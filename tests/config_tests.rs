@@ -1,4 +1,5 @@
 use ssh_knock::config::{Config, validate_ipset_name};
+use std::path::Path;
 
 fn valid_config() -> Config {
     toml::from_str(
@@ -35,6 +36,101 @@ size = 96
 fn accepts_valid_configuration_because_daemon_needs_safe_startup_inputs() {
     let config = valid_config();
     assert!(config.validate().is_ok());
+}
+
+#[test]
+fn parses_example_config_because_packaged_defaults_must_remain_valid() {
+    let config = Config::from_path(Path::new("sshknockd.toml"));
+    assert!(config.is_ok());
+}
+
+#[test]
+fn rejects_unknown_top_level_fields_because_typos_must_not_change_security_posture() {
+    let result = toml::from_str::<Config>(
+        r#"
+listen = "0.0.0.0"
+ssh_port = 10022
+ipset_name = "ssh_allow"
+unexpected_setting = true
+
+[[knock.sequence]]
+protocol = "udp"
+port = 40101
+size = 64
+
+[[knock.sequence]]
+protocol = "udp"
+port = 40102
+size = 128
+
+[[knock.sequence]]
+protocol = "udp"
+port = 40103
+size = 96
+"#,
+    );
+
+    assert!(result.is_err());
+}
+
+#[test]
+fn rejects_unknown_knock_section_fields_because_nested_config_must_be_strict() {
+    let result = toml::from_str::<Config>(
+        r#"
+listen = "0.0.0.0"
+ssh_port = 10022
+ipset_name = "ssh_allow"
+
+[knock]
+unexpected_section_field = true
+
+[[knock.sequence]]
+protocol = "udp"
+port = 40101
+size = 64
+
+[[knock.sequence]]
+protocol = "udp"
+port = 40102
+size = 128
+
+[[knock.sequence]]
+protocol = "udp"
+port = 40103
+size = 96
+"#,
+    );
+
+    assert!(result.is_err());
+}
+
+#[test]
+fn rejects_unknown_knock_step_fields_because_sequence_typos_must_not_be_ignored() {
+    let result = toml::from_str::<Config>(
+        r#"
+listen = "0.0.0.0"
+ssh_port = 10022
+ipset_name = "ssh_allow"
+
+[[knock.sequence]]
+protocol = "udp"
+port = 40101
+size = 64
+unexpected_step_field = true
+
+[[knock.sequence]]
+protocol = "udp"
+port = 40102
+size = 128
+
+[[knock.sequence]]
+protocol = "udp"
+port = 40103
+size = 96
+"#,
+    );
+
+    assert!(result.is_err());
 }
 
 #[test]

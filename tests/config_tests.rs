@@ -1,4 +1,4 @@
-use ssh_knock::config::{Config, validate_ipset_name};
+use ssh_knock::config::{Config, Protocol, validate_ipset_name};
 use std::path::Path;
 
 fn valid_config() -> Config {
@@ -144,6 +144,21 @@ fn rejects_short_sequences_because_single_packets_are_too_easy_to_guess() {
 fn rejects_duplicate_ports_because_sequence_steps_must_be_unambiguous() {
     let mut config = valid_config();
     config.knock.sequence[1].port = config.knock.sequence[0].port;
+    assert!(config.validate().is_err());
+}
+
+#[test]
+fn rejects_udp_knock_port_matching_ssh_port_because_protected_service_must_not_be_a_listener() {
+    let mut config = valid_config();
+    config.knock.sequence[0].port = Some(config.ssh_port);
+    assert!(config.validate().is_err());
+}
+
+#[test]
+fn rejects_tcp_knock_port_matching_ssh_port_because_protected_service_must_not_be_a_listener() {
+    let mut config = valid_config();
+    config.knock.sequence[0].protocol = Protocol::Tcp;
+    config.knock.sequence[0].port = Some(config.ssh_port);
     assert!(config.validate().is_err());
 }
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.2.3] - 2026-07-08
+
+### Fixed
+- Remove client helper commands to keep sshknockd clientless.
+
 ## [0.2.2] - 2026-07-08
 
 ### Added

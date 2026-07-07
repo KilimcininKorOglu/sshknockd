@@ -410,6 +410,39 @@ mod tests {
     }
 
     #[test]
+    fn accepts_complete_knock_sequence_because_valid_runtime_flow_must_open_ssh_and_audit()
+    -> Result<()> {
+        let (mut server, log_file) = test_server_with_log_level("info", 2)?;
+        let runner = RecordingRunner::default();
+        let source_ip = "192.0.2.30";
+        let addr = SocketAddr::new(source_ip.parse()?, 12_345);
+
+        server.process_packet(addr, Protocol::Tcp, Some(7001), 1, &runner)?;
+        server.process_packet(addr, Protocol::Udp, Some(7002), 2, &runner)?;
+        server.process_packet(addr, Protocol::Tcp, Some(7003), 3, &runner)?;
+
+        let commands = runner.commands.borrow();
+        assert_eq!(commands.len(), 1);
+        assert_eq!(commands[0].program, "ipset");
+        assert_eq!(
+            commands[0].args,
+            vec![
+                "add".to_string(),
+                "ssh_allow".to_string(),
+                source_ip.to_string(),
+                "timeout".to_string(),
+                "10".to_string(),
+                "-exist".to_string(),
+            ]
+        );
+
+        let content = fs::read_to_string(log_file.path())?;
+        assert!(content.contains("event=ssh_allow"));
+        assert!(content.contains("source_ip=192.0.2.30"));
+        Ok(())
+    }
+
+    #[test]
     fn info_suppresses_packet_telemetry_because_default_logs_must_not_be_high_volume() -> Result<()>
     {
         let (mut server, log_file) = test_server_with_log_level("info", 2)?;

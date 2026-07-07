@@ -1,5 +1,5 @@
 use crate::config::{Config, Protocol};
-use crate::firewall::{Firewall, SystemCommandRunner};
+use crate::firewall::{CommandRunner, Firewall, SystemCommandRunner};
 use crate::knock::{KnockOutcome, KnockPacket, KnockTracker};
 use crate::logger::AuditLogger;
 use crate::rate_limit::TokenBucketLimiter;
@@ -20,7 +20,6 @@ pub struct Server {
     firewall: Firewall,
     logger: AuditLogger,
     source_limiter: TokenBucketLimiter<IpAddr>,
-    global_limiter: TokenBucketLimiter<&'static str>,
     packet_telemetry_limiter: TokenBucketLimiter<&'static str>,
     banned_sources: HashMap<IpAddr, Instant>,
 }
@@ -57,11 +56,6 @@ impl Server {
             source_limiter: TokenBucketLimiter::new(
                 source_burst,
                 source_refill,
-                Duration::from_secs(60),
-            ),
-            global_limiter: TokenBucketLimiter::new(
-                source_burst.saturating_mul(10),
-                source_refill.saturating_mul(10),
                 Duration::from_secs(60),
             ),
             packet_telemetry_limiter: TokenBucketLimiter::new(
@@ -226,13 +220,13 @@ impl Server {
         Ok(())
     }
 
-    fn process_packet(
+    fn process_packet<R: CommandRunner>(
         &mut self,
         addr: SocketAddr,
         protocol: Protocol,
         port: Option<u16>,
         payload_size: usize,
-        runner: &SystemCommandRunner,
+        runner: &R,
     ) -> Result<()> {
         let source_ip: IpAddr = addr.ip();
         let now = Instant::now();
@@ -249,8 +243,7 @@ impl Server {
             now,
         );
         if matches!(outcome, KnockOutcome::Rejected | KnockOutcome::Oversized)
-            && (!self.source_limiter.allow(source_ip, now)
-                || !self.global_limiter.allow("invalid", now))
+            && !self.source_limiter.allow(source_ip, now)
         {
             if let Err(error) = self.firewall.ban_ip(runner, source_ip) {
                 self.logger.log(
@@ -314,6 +307,8 @@ pub fn read_tcp_knock(
 mod tests {
     use super::*;
     use crate::config::{AddressFamily, FirewallBackend, KnockSection, KnockStep};
+    use crate::firewall::{CommandSpec, CommandStatus};
+    use std::cell::RefCell;
     use std::fs;
 
     fn test_server(ban_timeout: u64) -> Result<Server> {
@@ -366,10 +361,35 @@ mod tests {
         Ok((Server::new(config)?, log_file))
     }
 
+    #[derive(Debug, Default)]
+    struct RecordingRunner {
+        commands: RefCell<Vec<CommandSpec>>,
+    }
+
+    impl CommandRunner for RecordingRunner {
+        fn run_status(&self, spec: &CommandSpec) -> Result<CommandStatus> {
+            self.commands.borrow_mut().push(spec.clone());
+            Ok(CommandStatus {
+                success: true,
+                code: Some(0),
+                diagnostics: String::new(),
+            })
+        }
+    }
+
     fn process_partial_knock(server: &mut Server, source_ip: &str) -> Result<()> {
         let addr = SocketAddr::new(source_ip.parse()?, 12_345);
         let runner = SystemCommandRunner;
         server.process_packet(addr, Protocol::Tcp, Some(7001), 1, &runner)
+    }
+
+    fn process_oversized_knock(
+        server: &mut Server,
+        runner: &RecordingRunner,
+        source_ip: &str,
+    ) -> Result<()> {
+        let addr = SocketAddr::new(source_ip.parse()?, 12_345);
+        server.process_packet(addr, Protocol::Tcp, Some(7001), 513, runner)
     }
 
     fn count_packet_telemetry(content: &str) -> usize {
@@ -431,6 +451,50 @@ mod tests {
 
         let content = fs::read_to_string(log_file.path())?;
         assert_eq!(count_packet_telemetry(&content), 20);
+        Ok(())
+    }
+
+    #[test]
+    fn does_not_ban_unrelated_sources_when_aggregate_invalid_traffic_is_high_because_bans_are_per_source(
+    ) -> Result<()> {
+        let mut server = test_server(2)?;
+        let runner = RecordingRunner::default();
+
+        for offset in 1..=12 {
+            process_oversized_knock(&mut server, &runner, &format!("192.0.2.{offset}"))?;
+        }
+
+        assert!(server.banned_sources.is_empty());
+        assert!(runner.commands.borrow().is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn bans_source_after_its_own_invalid_limit_is_exceeded_because_rate_limits_are_per_source(
+    ) -> Result<()> {
+        let mut server = test_server(2)?;
+        let runner = RecordingRunner::default();
+        let source_ip = "192.0.2.20";
+
+        process_oversized_knock(&mut server, &runner, source_ip)?;
+        process_oversized_knock(&mut server, &runner, source_ip)?;
+
+        let parsed_source_ip = source_ip.parse()?;
+        let commands = runner.commands.borrow();
+        assert!(server.banned_sources.contains_key(&parsed_source_ip));
+        assert_eq!(commands.len(), 1);
+        assert_eq!(commands[0].program, "ipset");
+        assert_eq!(
+            commands[0].args,
+            vec![
+                "add".to_string(),
+                "ssh_ban".to_string(),
+                source_ip.to_string(),
+                "timeout".to_string(),
+                "2".to_string(),
+                "-exist".to_string(),
+            ]
+        );
         Ok(())
     }
 

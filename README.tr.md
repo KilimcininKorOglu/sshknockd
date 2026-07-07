@@ -22,26 +22,26 @@ cargo test
 
 ## Server yapılandırma referansı
 
-| Ayar                         |                    Varsayılan örnek | Anlamı                                                                                      |
-|------------------------------|------------------------------------:|---------------------------------------------------------------------------------------------|
-| `listen`                     |                           `0.0.0.0` | `sshknockd` knock listener adresi. IPv6 listener için `::` kullanın.                         |
-| `ssh_port`                   |                             `10022` | Geçerli knock sequence sonrasında geçici olarak açılacak SSH TCP portu.                      |
-| `ipset_name`                 |                         `ssh_allow` | Geçici izin verilen source IP adreslerini tutan ipset adı.                                   |
-| `firewall_backend`           |                          `iptables` | Firewall komut ailesi. IPv4 için `iptables`, IPv6 için `ip6tables`.                          |
-| `address_family`             |                              `ipv4` | ipset address family. Desteklenen değerler `ipv4` ve `ipv6`.                                 |
-| `sequence_window`            |                                 `5` | İlk geçerli knock step ile son geçerli step arasında izin verilen maksimum saniye.           |
-| `ip_timeout`                 |                                `10` | Başarılı knock yapan source IP adresinin ipset içinde izinli kalacağı saniye.                |
-| `partial_state_timeout`      |                                `10` | Eksik per-source knock state temizlenmeden önce beklenecek saniye.                           |
-| `max_payload_size`           |                               `512` | Packet oversized sayılmadan önce kabul edilen maksimum knock payload size.                   |
-| `log_level`                  |                              `info` | Operatörler ve ilerideki structured log filtering için ayrılmış verbosity ayarı.             |
-| `log_file`                   | `/var/log/sshknockd/sshknockd.log`  | SIEM odaklı audit log dosya yolu.                                                           |
-| `invalid_burst_limit`        |                                `20` | Ban mantığı tetiklenmeden önce source başına izin verilen invalid packet burst değeri.       |
-| `invalid_refill_per_minute`  |                                `10` | Source başına her dakika geri eklenen invalid packet hakkı.                                  |
-| `ban_timeout`                |                             `86400` | Rate limit’e takılan source IP’nin ban ipset içinde kalacağı saniye.                         |
-| `ban_ipset_name`             |                     `sshknockd_ban` | 24 saatlik source IP ban’leri için kullanılan ipset adı.                                     |
-| `knock.sequence[].protocol`  |                               `udp` | Step için knock transport. Desteklenen değerler `udp`, `tcp` ve `icmp`.                      |
-| `knock.sequence[].port`      |                             `40101` | `udp` ve `tcp` step’leri için destination port. `icmp` için atlayın.                         |
-| `knock.sequence[].size`      |                                `64` | Step için gereken tam payload size.                                                          |
+| Ayar                        |                   Varsayılan örnek | Anlamı                                                                                 |
+|-----------------------------|-----------------------------------:|----------------------------------------------------------------------------------------|
+| `listen`                    |                          `0.0.0.0` | `sshknockd` knock listener adresi. IPv6 listener için `::` kullanın.                   |
+| `ssh_port`                  |                            `10022` | Geçerli knock sequence sonrasında geçici olarak açılacak SSH TCP portu.                |
+| `ipset_name`                |                        `ssh_allow` | Geçici izin verilen source IP adreslerini tutan ipset adı.                             |
+| `firewall_backend`          |                         `iptables` | Firewall komut ailesi. IPv4 için `iptables`, IPv6 için `ip6tables`.                    |
+| `address_family`            |                             `ipv4` | ipset address family. Desteklenen değerler `ipv4` ve `ipv6`.                           |
+| `sequence_window`           |                                `5` | İlk geçerli knock step ile son geçerli step arasında izin verilen maksimum saniye.     |
+| `ip_timeout`                |                               `10` | Başarılı knock yapan source IP adresinin ipset içinde izinli kalacağı saniye.          |
+| `partial_state_timeout`     |                               `10` | Eksik per-source knock state temizlenmeden önce beklenecek saniye.                     |
+| `max_payload_size`          |                              `512` | Packet oversized sayılmadan önce kabul edilen maksimum knock payload size.             |
+| `log_level`                 |                             `info` | Operatörler ve ilerideki structured log filtering için ayrılmış verbosity ayarı.       |
+| `log_file`                  | `/var/log/sshknockd/sshknockd.log` | SIEM odaklı audit log dosya yolu.                                                      |
+| `invalid_burst_limit`       |                               `20` | Ban mantığı tetiklenmeden önce source başına izin verilen invalid packet burst değeri. |
+| `invalid_refill_per_minute` |                               `10` | Source başına her dakika geri eklenen invalid packet hakkı.                            |
+| `ban_timeout`               |                            `86400` | Rate limit’e takılan source IP’nin ban ipset içinde kalacağı saniye.                   |
+| `ban_ipset_name`            |                    `sshknockd_ban` | 24 saatlik source IP ban’leri için kullanılan ipset adı.                               |
+| `knock.sequence[].protocol` |                              `udp` | Step için knock transport. Desteklenen değerler `udp`, `tcp` ve `icmp`.                |
+| `knock.sequence[].port`     |                            `40101` | `udp` ve `tcp` step’leri için destination port. `icmp` için atlayın.                   |
+| `knock.sequence[].size`     |                               `64` | Step için gereken tam payload size.                                                    |
 
 IPv4, `iptables` ve `ipset hash:ip` kullanır. IPv6, `ip6tables` ve `ipset hash:ip family inet6` kullanır.
 

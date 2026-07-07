@@ -136,9 +136,13 @@ impl Server {
             for (port, listener) in &tcp_listeners {
                 match listener.accept() {
                     Ok((mut stream, addr)) => {
-                        stream.set_nonblocking(false)?;
-                        let size = stream.read(&mut buffer)?;
-                        self.process_packet(addr, Protocol::Tcp, Some(*port), size, &runner)?;
+                        if let Some(size) = read_tcp_knock(
+                            &mut stream,
+                            &mut buffer,
+                            Duration::from_secs(self.config.partial_state_timeout),
+                        )? {
+                            self.process_packet(addr, Protocol::Tcp, Some(*port), size, &runner)?;
+                        }
                     }
                     Err(error) if error.kind() == ErrorKind::WouldBlock => {}
                     Err(error) => return Err(error.into()),
@@ -241,5 +245,25 @@ impl Server {
             );
         }
         Ok(())
+    }
+}
+
+/// Reads a TCP knock payload with a bounded timeout.
+///
+/// # Errors
+///
+/// Returns an error when timeout configuration fails or when the read fails for a reason other than timeout.
+pub fn read_tcp_knock(
+    stream: &mut std::net::TcpStream,
+    buffer: &mut [u8],
+    timeout: Duration,
+) -> std::io::Result<Option<usize>> {
+    stream.set_read_timeout(Some(timeout))?;
+    match stream.read(buffer) {
+        Ok(size) => Ok(Some(size)),
+        Err(error) if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
+            Ok(None)
+        }
+        Err(error) => Err(error),
     }
 }

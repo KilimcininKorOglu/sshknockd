@@ -1,0 +1,30 @@
+listen = "0.0.0.0"
+ssh_port = 10022
+ipset_name = "ssh_allow"
+firewall_backend = "iptables"
+address_family = "ipv4"
+sequence_window = 5
+ip_timeout = 10
+partial_state_timeout = 10
+max_payload_size = 512
+log_level = "info"
+log_file = "/var/log/sshknockd/sshknockd.log"
+invalid_burst_limit = 20
+invalid_refill_per_minute = 10
+ban_timeout = 86400
+ban_ipset_name = "sshknockd_ban"
+
+[[knock.sequence]]
+protocol = "udp"
+port = 40101
+size = 64
+
+[[knock.sequence]]
+protocol = "udp"
+port = 40102
+size = 128
+
+[[knock.sequence]]
+protocol = "udp"
+port = 40103
+size = 96

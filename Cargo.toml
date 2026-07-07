@@ -1,0 +1,63 @@
+[package]
+name = "sshknockd"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+description = "Server-side port knocking service for SSH access control"
+
+[lib]
+name = "ssh_knock"
+path = "src/lib.rs"
+
+[[bin]]
+name = "sshknockd"
+path = "src/bin/sshknockd.rs"
+
+[[bin]]
+name = "sshknock"
+path = "src/bin/sshknock.rs"
+
+[dependencies]
+anyhow = "1.0"
+clap = { version = "4.5", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+socket2 = "0.6"
+toml = "0.9"
+
+[dev-dependencies]
+tempfile = "3.23"
+
+[package.metadata.deb]
+maintainer = "KilimcininKoroglu <k@keremgok.tr>"
+copyright = "2026, KilimcininKoroglu"
+license-file = ["LICENSE", "0"]
+extended-description = "Server-side port knocking service for protecting SSH access without requiring a dedicated client binary."
+depends = "ipset, iptables, curl"
+section = "net"
+priority = "optional"
+maintainer-scripts = "packaging/debian"
+systemd-units = [{ unit-name = "sshknockd", unit-scripts = "packaging/debian", enable = false }]
+assets = [
+    ["target/release/sshknockd", "usr/bin/", "755"],
+    ["target/release/sshknock", "usr/bin/", "755"],
+    ["sshknock.toml", "etc/sshknock.toml", "600"],
+    ["packaging/man/sshknockd.8", "usr/share/man/man8/sshknockd.8", "644"],
+    ["packaging/man/sshknock.1", "usr/share/man/man1/sshknock.1", "644"],
+]
+
+[package.metadata.generate-rpm]
+post_install_script = "packaging/rpm/postinstall.sh"
+assets = [
+    { source = "target/release/sshknockd", dest = "/usr/bin/sshknockd", mode = "755" },
+    { source = "target/release/sshknock", dest = "/usr/bin/sshknock", mode = "755" },
+    { source = "sshknock.toml", dest = "/etc/sshknock.toml", mode = "600", config = true },
+    { source = "packaging/rpm/sshknockd.service", dest = "/usr/lib/systemd/system/sshknockd.service", mode = "644" },
+    { source = "packaging/man/sshknockd.8", dest = "/usr/share/man/man8/sshknockd.8", mode = "644", doc = true },
+    { source = "packaging/man/sshknock.1", dest = "/usr/share/man/man1/sshknock.1", mode = "644", doc = true },
+]
+
+[package.metadata.generate-rpm.requires]
+ipset = "*"
+iptables = "*"
+curl = "*"

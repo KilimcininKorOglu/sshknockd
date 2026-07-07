@@ -1,0 +1,22 @@
+#!/bin/sh
+set -e
+#DEBHELPER#
+install -d -m 0750 /var/log/sshknockd
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl daemon-reload || true
+fi
+cat <<'EOF'
+
+SSHKnockd was installed.
+
+Next steps:
+  1. Edit /etc/sshknock.toml for your server.
+  2. Run the setup wizard command:
+       sudo sshknockd --config /etc/sshknock.toml setup-firewall
+  3. Start the daemon:
+       sudo systemctl enable --now sshknockd
+
+The package does not change firewall rules automatically during installation.
+Use sshknockd update to install the latest compatible GitHub release package and restart the service.
+EOF
+exit 0

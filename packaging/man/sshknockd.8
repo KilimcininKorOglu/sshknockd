@@ -1,0 +1,37 @@
+.TH SSHKNOCKD 8 "" "sshknockd 0.1.0" "System Administration"
+.SH NAME
+sshknockd \- server-side port knocking daemon for SSH access control
+.SH SYNOPSIS
+.B sshknockd
+[\fB--config\fR \fIPATH\fR]
+.br
+.B sshknockd
+[\fB--config\fR \fIPATH\fR] \fBsetup-firewall\fR
+.br
+.B sshknockd
+\fBupdate\fR
+.SH DESCRIPTION
+.B sshknockd
+listens for a configured TCP, UDP, or ICMP knock sequence and temporarily allows the source IP to reach the configured SSH TCP port through ipset and iptables rules.
+.PP
+The knock sequence is not authentication. SSH authentication remains the security boundary.
+.SH COMMANDS
+.TP
+.B setup-firewall
+Creates the configured allow and ban ipsets and installs iptables or ip6tables rules for the protected SSH port.
+.TP
+.B update
+Fetches the latest GitHub release from the built-in repository, compares it with the installed version, selects a DEB or RPM package for the current Linux distribution and CPU architecture, installs it, and restarts the sshknockd systemd service.
+.SH FILES
+.TP
+.I /etc/sshknock.toml
+Main configuration file.
+.TP
+.I /var/log/sshknockd/sshknockd.log
+Default SIEM-oriented audit log file.
+.SH SEE ALSO
+.BR sshknock (1),
+.BR iptables (8),
+.BR ip6tables (8),
+.BR ipset (8),
+.BR systemctl (1)

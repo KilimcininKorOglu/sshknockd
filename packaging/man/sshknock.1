@@ -1,0 +1,35 @@
+.TH SSHKNOCK 1 "" "sshknockd 0.1.0" "User Commands"
+.SH NAME
+sshknock \- optional helper client for sending an SSHKnock sequence
+.SH SYNOPSIS
+.B sshknock
+[\fB--config\fR \fIPATH\fR] \fBknock\fR \fISERVER\fR
+.br
+.B sshknock
+[\fB--config\fR \fIPATH\fR] \fBssh\fR \fISERVER\fR [\fISSH_ARGS\fR...]
+.br
+.B sshknock
+[\fB--config\fR \fIPATH\fR] \fBprint-script\fR \fISERVER\fR
+.SH DESCRIPTION
+.B sshknock
+is an optional helper for sending the configured TCP or UDP knock sequence before connecting to SSH.
+.PP
+The required product flow remains clientless and can be performed with common tools such as nc or shell redirection.
+.SH COMMANDS
+.TP
+.B knock
+Sends the configured knock sequence to the server.
+.TP
+.B ssh
+Sends the configured knock sequence, waits briefly, then runs ssh with the configured port.
+.TP
+.B print-script
+Prints shell commands that reproduce the configured sequence without the helper binary.
+.SH FILES
+.TP
+.I sshknock.toml
+Default helper configuration path when no explicit config is provided.
+.SH SEE ALSO
+.BR sshknockd (8),
+.BR ssh (1),
+.BR nc (1)

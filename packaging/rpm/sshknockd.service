@@ -1,0 +1,25 @@
+[Unit]
+Description=SSHKnock port knocking daemon
+After=network-online.target
+Wants=network-online.target
+Documentation=file:/usr/share/doc/sshknockd/README.md
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/sshknockd --config /etc/sshknock.toml
+Restart=on-failure
+RestartSec=2s
+User=root
+NoNewPrivileges=true
+ProtectHome=true
+PrivateTmp=true
+ProtectClock=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

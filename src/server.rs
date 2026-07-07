@@ -1,0 +1,245 @@
+use crate::config::{Config, Protocol};
+use crate::firewall::{Firewall, SystemCommandRunner};
+use crate::knock::{KnockOutcome, KnockPacket, KnockTracker};
+use crate::logger::AuditLogger;
+use crate::rate_limit::TokenBucketLimiter;
+use anyhow::{Context, Result};
+use socket2::{Domain, Protocol as SocketProtocol, Socket, Type};
+use std::collections::HashSet;
+use std::io::{ErrorKind, Read};
+use std::mem::MaybeUninit;
+use std::net::{IpAddr, SocketAddr, TcpListener, UdpSocket};
+use std::path::Path;
+use std::thread;
+use std::time::{Duration, Instant};
+
+#[derive(Debug)]
+pub struct Server {
+    config: Config,
+    tracker: KnockTracker,
+    firewall: Firewall,
+    logger: AuditLogger,
+    source_limiter: TokenBucketLimiter<IpAddr>,
+    global_limiter: TokenBucketLimiter<&'static str>,
+    banned_sources: HashSet<IpAddr>,
+}
+
+impl Server {
+    /// Creates a server from validated configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when firewall configuration is invalid.
+    pub fn new(config: Config) -> Result<Self> {
+        let tracker = KnockTracker::new(
+            config.knock.sequence.clone(),
+            Duration::from_secs(config.sequence_window),
+            Duration::from_secs(config.partial_state_timeout),
+            config.max_payload_size,
+        );
+        let firewall = Firewall::new(
+            config.ipset_name.clone(),
+            config.ban_ipset_name.clone(),
+            config.ip_timeout,
+            config.ban_timeout,
+            config.firewall_backend.clone(),
+            config.address_family.clone(),
+        )?;
+        let logger = AuditLogger::new(Path::new(&config.log_file))?;
+        let source_burst = config.invalid_burst_limit;
+        let source_refill = config.invalid_refill_per_minute;
+        Ok(Self {
+            config,
+            tracker,
+            firewall,
+            logger,
+            source_limiter: TokenBucketLimiter::new(
+                source_burst,
+                source_refill,
+                Duration::from_secs(60),
+            ),
+            global_limiter: TokenBucketLimiter::new(
+                source_burst.saturating_mul(10),
+                source_refill.saturating_mul(10),
+                Duration::from_secs(60),
+            ),
+            banned_sources: HashSet::new(),
+        })
+    }
+
+    /// Runs knock listeners for the configured TCP, UDP, and ICMP sequence steps.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when sockets cannot bind or firewall commands fail.
+    pub fn run(mut self) -> Result<()> {
+        let runner = SystemCommandRunner;
+        self.logger.log("daemon_start", "sshknockd starting");
+        if let Err(error) = self.firewall.preflight(&runner) {
+            self.logger
+                .log("firewall_preflight_failed", &format!("error={error}"));
+            return Err(error);
+        }
+        self.logger.log("firewall_preflight", "completed");
+        let mut udp_sockets = Vec::new();
+        let mut tcp_listeners = Vec::new();
+        let mut icmp_socket = None;
+        for step in &self.config.knock.sequence {
+            match step.protocol {
+                Protocol::Udp => {
+                    let port = step.port.context("validated udp step has port")?;
+                    if udp_sockets.iter().any(|(existing, _)| *existing == port) {
+                        continue;
+                    }
+                    let socket = UdpSocket::bind((self.config.listen.as_str(), port))
+                        .with_context(|| format!("failed to bind UDP knock port {port}"))?;
+                    socket
+                        .set_nonblocking(true)
+                        .context("failed to configure UDP socket")?;
+                    self.logger.log("bind_udp", &format!("port={port}"));
+                    udp_sockets.push((port, socket));
+                }
+                Protocol::Tcp => {
+                    let port = step.port.context("validated tcp step has port")?;
+                    if tcp_listeners.iter().any(|(existing, _)| *existing == port) {
+                        continue;
+                    }
+                    let listener = TcpListener::bind((self.config.listen.as_str(), port))
+                        .with_context(|| format!("failed to bind TCP knock port {port}"))?;
+                    listener
+                        .set_nonblocking(true)
+                        .context("failed to configure TCP listener")?;
+                    self.logger.log("bind_tcp", &format!("port={port}"));
+                    tcp_listeners.push((port, listener));
+                }
+                Protocol::Icmp => {
+                    if icmp_socket.is_none() {
+                        icmp_socket = Some(Self::bind_icmp_socket()?);
+                        self.logger.log("bind_icmp", "enabled");
+                    }
+                }
+            }
+        }
+        let mut buffer = vec![0_u8; self.config.max_payload_size.saturating_add(1)];
+        let mut icmp_buffer =
+            vec![MaybeUninit::<u8>::uninit(); self.config.max_payload_size.saturating_add(29)];
+        loop {
+            for (port, socket) in &udp_sockets {
+                match socket.recv_from(&mut buffer) {
+                    Ok((size, addr)) => {
+                        self.process_packet(addr, Protocol::Udp, Some(*port), size, &runner)?;
+                    }
+                    Err(error) if error.kind() == ErrorKind::WouldBlock => {}
+                    Err(error) => return Err(error.into()),
+                }
+            }
+            for (port, listener) in &tcp_listeners {
+                match listener.accept() {
+                    Ok((mut stream, addr)) => {
+                        stream.set_nonblocking(false)?;
+                        let size = stream.read(&mut buffer)?;
+                        self.process_packet(addr, Protocol::Tcp, Some(*port), size, &runner)?;
+                    }
+                    Err(error) if error.kind() == ErrorKind::WouldBlock => {}
+                    Err(error) => return Err(error.into()),
+                }
+            }
+            if let Some(socket) = &icmp_socket {
+                match socket.recv_from(&mut icmp_buffer) {
+                    Ok((size, addr)) => {
+                        let addr = addr
+                            .as_socket()
+                            .context("failed to read ICMP source address")?;
+                        let payload_size = size.saturating_sub(28);
+                        self.process_packet(addr, Protocol::Icmp, None, payload_size, &runner)?;
+                    }
+                    Err(error) if error.kind() == ErrorKind::WouldBlock => {}
+                    Err(error) => return Err(error.into()),
+                }
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    fn bind_icmp_socket() -> Result<Socket> {
+        let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(SocketProtocol::ICMPV4))
+            .context("failed to create ICMP datagram socket")?;
+        socket
+            .set_nonblocking(true)
+            .context("failed to configure ICMP raw socket")?;
+        Ok(socket)
+    }
+
+    fn process_packet(
+        &mut self,
+        addr: SocketAddr,
+        protocol: Protocol,
+        port: Option<u16>,
+        payload_size: usize,
+        runner: &SystemCommandRunner,
+    ) -> Result<()> {
+        let source_ip: IpAddr = addr.ip();
+        if self.banned_sources.contains(&source_ip) {
+            return Ok(());
+        }
+        let now = Instant::now();
+        self.logger.log(
+            "packet_seen",
+            &format!(
+                "source_ip={source_ip} protocol={protocol:?} port={} size={payload_size}",
+                port.map_or_else(|| "none".to_string(), |value| value.to_string())
+            ),
+        );
+        let outcome = self.tracker.process(
+            KnockPacket {
+                source_ip,
+                protocol,
+                port,
+                payload_size,
+            },
+            now,
+        );
+        self.logger.log(
+            "knock_outcome",
+            &format!("source_ip={source_ip} outcome={outcome:?}"),
+        );
+        if matches!(outcome, KnockOutcome::Rejected | KnockOutcome::Oversized)
+            && (!self.source_limiter.allow(source_ip, now)
+                || !self.global_limiter.allow("invalid", now))
+        {
+            if let Err(error) = self.firewall.ban_ip(runner, source_ip) {
+                self.logger.log(
+                    "firewall_ban_failed",
+                    &format!("source_ip={source_ip} error={error}"),
+                );
+                return Err(error);
+            }
+            self.banned_sources.insert(source_ip);
+            self.logger.log(
+                "rate_limit_ban",
+                &format!(
+                    "source_ip={source_ip} ban_timeout_seconds={}",
+                    self.config.ban_timeout
+                ),
+            );
+            return Ok(());
+        }
+        if outcome == KnockOutcome::Accepted {
+            if let Err(error) = self.firewall.add_ip(runner, source_ip) {
+                self.logger.log(
+                    "firewall_allow_failed",
+                    &format!("source_ip={source_ip} error={error}"),
+                );
+                return Err(error);
+            }
+            self.logger.log(
+                "ssh_allow",
+                &format!(
+                    "source_ip={source_ip} allow_timeout_seconds={}",
+                    self.config.ip_timeout
+                ),
+            );
+        }
+        Ok(())
+    }
+}

@@ -7,7 +7,7 @@
 [![Release Downloads](https://img.shields.io/github/downloads/KilimcininKoroglu/sshknockd/total)](https://github.com/KilimcininKoroglu/sshknockd/releases)
 [![License](https://img.shields.io/github/license/KilimcininKoroglu/sshknockd)](LICENSE)
 
-sshknockd, SSH erişim kontrolü için hafif bir server-side port knocking servisidir. Kaynak IP yapılandırılmış knock sequence göndermeden SSH portunu kapalı tutar.
+sshknockd, SSH erişim kontrolü için hafif bir server-side port knocking servisidir. Kaynak IP yapılandırılmış knock sequence göndermeden SSH portunu kapalı tutar. Ürün akışı clientless çalışır: istemciler `nc`, shell redirection, `ping` veya SSH `ProxyCommand` gibi standart araçları kullanır; `sshknockd` client helper komutları sağlamaz.
 
 ## Build
 
@@ -63,7 +63,7 @@ cargo deb
 cargo generate-rpm
 ```
 
-Paketler `sshknockd(8)` man sayfasını içerir ve `amd64` ile `arm64` release target’ları için build edilir. Paket kurulduktan sonra daemon, administrative command ve helper subcommand reference için `man sshknockd` kullanın.
+Paketler `sshknockd(8)` man sayfasını içerir ve `amd64` ile `arm64` release target’ları için build edilir. Paket kurulduktan sonra daemon ve administrative command reference için `man sshknockd` kullanın.
 
 Temiz local package çıktısı için package adı değiştikten sonra stale artifact’leri kaldırın veya paketleri yeniden build etmeden önce `cargo clean` çalıştırın.
 

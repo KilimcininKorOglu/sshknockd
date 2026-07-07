@@ -7,7 +7,7 @@
 [![Release Downloads](https://img.shields.io/github/downloads/KilimcininKoroglu/sshknockd/total)](https://github.com/KilimcininKoroglu/sshknockd/releases)
 [![License](https://img.shields.io/github/license/KilimcininKoroglu/sshknockd)](LICENSE)
 
-sshknockd is a lightweight server-side port knocking service for SSH access control. It keeps the SSH port closed until a source IP sends the configured knock sequence.
+sshknockd is a lightweight server-side port knocking service for SSH access control. It keeps the SSH port closed until a source IP sends the configured knock sequence. The product flow is clientless: clients use standard tools such as `nc`, shell redirection, `ping`, or SSH `ProxyCommand`; `sshknockd` does not provide client helper commands.
 
 ## Build
 
@@ -63,7 +63,7 @@ cargo deb
 cargo generate-rpm
 ```
 
-The packages include the `sshknockd(8)` man page and are built for `amd64` and `arm64` release targets. After installing a package, use `man sshknockd` for the daemon, administrative commands, and helper subcommands reference.
+The packages include the `sshknockd(8)` man page and are built for `amd64` and `arm64` release targets. After installing a package, use `man sshknockd` for the daemon and administrative commands reference.
 
 For clean local package output, remove stale artifacts or run `cargo clean` before rebuilding packages after renaming the package.
 

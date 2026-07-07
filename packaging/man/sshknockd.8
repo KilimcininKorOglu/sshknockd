@@ -1,6 +1,6 @@
 .TH SSHKNOCKD 8 "" "sshknockd 0.2.0" "System Administration"
 .SH NAME
-sshknockd \- server-side port knocking daemon and helper CLI for SSH access control
+sshknockd \- server-side port knocking daemon for SSH access control
 .SH SYNOPSIS
 .B sshknockd
 [\fB--config\fR \fIPATH\fR]
@@ -10,15 +10,6 @@ sshknockd \- server-side port knocking daemon and helper CLI for SSH access cont
 .br
 .B sshknockd
 \fBupdate\fR
-.br
-.B sshknockd
-[\fB--config\fR \fIPATH\fR] \fBknock\fR \fISERVER\fR
-.br
-.B sshknockd
-[\fB--config\fR \fIPATH\fR] \fBssh\fR \fISERVER\fR [\fISSH_ARGS\fR...]
-.br
-.B sshknockd
-[\fB--config\fR \fIPATH\fR] \fBprint-script\fR \fISERVER\fR
 .br
 .B sshknockd
 [\fB--config\fR \fIPATH\fR] \fBconfig\fR
@@ -31,7 +22,7 @@ listens for a configured TCP, UDP, or ICMP knock sequence and temporarily allows
 .PP
 The knock sequence is not authentication. SSH authentication remains the security boundary.
 .PP
-The same binary also provides optional helper subcommands. The required product flow remains clientless and can be performed with common tools such as nc, ping, shell redirection, or SSH ProxyCommand.
+The product flow is clientless. Clients reproduce the configured knock sequence with common tools such as nc, ping, shell redirection, or SSH ProxyCommand; sshknockd does not provide client helper commands.
 .SH COMMANDS
 .TP
 .B setup-firewall
@@ -39,15 +30,6 @@ Creates the configured allow and ban ipsets and installs iptables or ip6tables r
 .TP
 .B update
 Fetches the latest GitHub release from the built-in repository, compares it with the installed version, selects a DEB or RPM package for the current Linux distribution and CPU architecture, installs it, and restarts the sshknockd systemd service.
-.TP
-.B knock
-Sends the configured TCP or UDP knock sequence to the server.
-.TP
-.B ssh
-Sends the configured TCP or UDP knock sequence, waits briefly, then runs ssh with the configured port.
-.TP
-.B print-script
-Prints shell commands that reproduce the configured sequence without a helper binary. The server argument is shell-quoted, and unsafe values are rejected.
 .TP
 .B config
 Prints a short summary of the loaded configuration.

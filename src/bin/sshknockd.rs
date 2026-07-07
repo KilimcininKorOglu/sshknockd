@@ -3,19 +3,16 @@ use clap::{Parser, Subcommand};
 use ed25519_dalek::{Signature, VerifyingKey};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use ssh_knock::config::{Config, Protocol};
+use ssh_knock::config::Config;
 use ssh_knock::firewall::{Firewall, SystemCommandRunner};
 use ssh_knock::server::Server;
 use std::fs;
-use std::io::Write;
-use std::net::{TcpStream, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::Duration;
 
 #[derive(Debug, Parser)]
 #[command(name = "sshknockd")]
-#[command(about = "Server-side SSH port knocking daemon and helper CLI")]
+#[command(about = "Server-side SSH port knocking daemon")]
 struct Args {
     #[arg(short, long, default_value = "/etc/sshknockd.toml")]
     config: PathBuf,
@@ -29,25 +26,6 @@ enum CommandKind {
     SetupFirewall,
     /// Download, install, and activate the latest package from the built-in GitHub repository.
     Update,
-    /// Send the configured TCP or UDP knock sequence to the server.
-    Knock {
-        /// Server hostname or IP address that receives the knock sequence.
-        server: String,
-    },
-    /// Send the configured knock sequence, then run ssh against the protected SSH port.
-    Ssh {
-        /// Server hostname or IP address used for the knock sequence and ssh command.
-        server: String,
-        /// Extra arguments passed to ssh before the server argument.
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        ssh_args: Vec<String>,
-    },
-    /// Print shell commands that reproduce the configured knock sequence without a helper binary.
-    PrintScript {
-        /// Server hostname or IP address used in the generated shell commands.
-        #[arg(allow_hyphen_values = true)]
-        server: String,
-    },
     /// Print a short summary of the loaded configuration.
     Config,
     /// Print the installed sshknockd version.
@@ -86,102 +64,12 @@ fn main() -> Result<()> {
             println!("sequence_steps={}", config.knock.sequence.len());
             Ok(())
         }
-        Some(CommandKind::PrintScript { server }) => {
-            let config = Config::from_path(&args.config)?;
-            print_script(&config, &server)
-        }
-        Some(CommandKind::Knock { server }) => {
-            let config = Config::from_path(&args.config)?;
-            send_knock(&config, &server)
-        }
-        Some(CommandKind::Ssh { server, ssh_args }) => {
-            let config = Config::from_path(&args.config)?;
-            send_knock(&config, &server)?;
-            std::thread::sleep(Duration::from_secs(1));
-            let status = Command::new("ssh")
-                .arg("-p")
-                .arg(config.ssh_port.to_string())
-                .args(ssh_args)
-                .arg(&server)
-                .status()
-                .context("failed to execute ssh")?;
-            if !status.success() {
-                bail!("ssh exited unsuccessfully");
-            }
-            Ok(())
-        }
         None => {
             let config = Config::from_path(&args.config)?;
             let server = Server::new(config)?;
             server.run()
         }
     }
-}
-
-fn send_knock(config: &Config, server: &str) -> Result<()> {
-    for step in &config.knock.sequence {
-        let payload = vec![b'K'; step.size];
-        match step.protocol {
-            Protocol::Udp => {
-                let port = step.port.context("validated udp step has port")?;
-                let socket = UdpSocket::bind("0.0.0.0:0")?;
-                socket.send_to(&payload, (server, port))?;
-            }
-            Protocol::Tcp => {
-                let port = step.port.context("validated tcp step has port")?;
-                let mut stream = TcpStream::connect((server, port))?;
-                stream.write_all(&payload)?;
-            }
-            Protocol::Icmp => bail!("icmp knock sending is not supported by the helper command"),
-        }
-    }
-    Ok(())
-}
-
-fn validate_print_script_server(server: &str) -> Result<()> {
-    if server.is_empty() {
-        bail!("server must not be empty");
-    }
-    if server.starts_with('-') {
-        bail!("server must not start with '-'");
-    }
-    if server.chars().any(char::is_control) {
-        bail!("server must not contain control characters");
-    }
-    Ok(())
-}
-
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\\''"))
-}
-
-fn print_script(config: &Config, server: &str) -> Result<()> {
-    validate_print_script_server(server)?;
-    let quoted_server = shell_quote(server);
-    let quoted_ssh_target = shell_quote(&format!("user@{server}"));
-    for step in &config.knock.sequence {
-        match step.protocol {
-            Protocol::Udp => {
-                let port = step.port.context("validated udp step has port")?;
-                println!(
-                    "printf '%0{}s' '' | tr ' ' K | nc -u -w1 {quoted_server} {port}",
-                    step.size
-                );
-            }
-            Protocol::Tcp => {
-                let port = step.port.context("validated tcp step has port")?;
-                println!(
-                    "printf '%0{}s' '' | tr ' ' K | nc -w1 {quoted_server} {port}",
-                    step.size
-                );
-            }
-            Protocol::Icmp => {
-                println!("ping -c 1 -s {} {quoted_server}", step.size);
-            }
-        }
-    }
-    println!("ssh -p {} {quoted_ssh_target}", config.ssh_port);
-    Ok(())
 }
 
 const GITHUB_OWNER: &str = "KilimcininKoroglu";

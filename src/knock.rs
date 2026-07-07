@@ -31,6 +31,7 @@ pub struct KnockTracker {
     sequence: Vec<KnockStep>,
     sequence_window: Duration,
     partial_state_timeout: Duration,
+    max_partial_states: usize,
     max_payload_size: usize,
     states: HashMap<IpAddr, SourceState>,
 }
@@ -41,15 +42,27 @@ impl KnockTracker {
         sequence: Vec<KnockStep>,
         sequence_window: Duration,
         partial_state_timeout: Duration,
+        max_partial_states: usize,
         max_payload_size: usize,
     ) -> Self {
         Self {
             sequence,
             sequence_window,
             partial_state_timeout,
+            max_partial_states,
             max_payload_size,
             states: HashMap::new(),
         }
+    }
+
+    /// Returns the number of in-progress partial knock states.
+    pub fn len(&self) -> usize {
+        self.states.len()
+    }
+
+    /// Returns whether there are no in-progress partial knock states.
+    pub fn is_empty(&self) -> bool {
+        self.states.is_empty()
     }
 
     /// Processes a packet and returns whether it completed the configured sequence.
@@ -78,18 +91,18 @@ impl KnockTracker {
         if next_step == self.sequence.len() {
             self.states.remove(&packet.source_ip);
             KnockOutcome::Accepted
+        } else if expected == 0 {
+            self.start_partial_state(packet.source_ip, now)
         } else {
+            let first_seen = self
+                .states
+                .get(&packet.source_ip)
+                .map_or(now, |state| state.first_seen);
             self.states.insert(
                 packet.source_ip,
                 SourceState {
                     next_step,
-                    first_seen: if expected == 0 {
-                        now
-                    } else {
-                        self.states
-                            .get(&packet.source_ip)
-                            .map_or(now, |state| state.first_seen)
-                    },
+                    first_seen,
                     last_seen: now,
                 },
             );
@@ -107,18 +120,25 @@ impl KnockTracker {
 
     fn start_or_reject(&mut self, packet: KnockPacket, now: Instant) -> KnockOutcome {
         if self.matches_step(0, &packet) {
-            self.states.insert(
-                packet.source_ip,
-                SourceState {
-                    next_step: 1,
-                    first_seen: now,
-                    last_seen: now,
-                },
-            );
-            KnockOutcome::Progress { next_step: 1 }
+            self.start_partial_state(packet.source_ip, now)
         } else {
             KnockOutcome::Rejected
         }
+    }
+
+    fn start_partial_state(&mut self, source_ip: IpAddr, now: Instant) -> KnockOutcome {
+        if !self.states.contains_key(&source_ip) && self.states.len() >= self.max_partial_states {
+            return KnockOutcome::Rejected;
+        }
+        self.states.insert(
+            source_ip,
+            SourceState {
+                next_step: 1,
+                first_seen: now,
+                last_seen: now,
+            },
+        );
+        KnockOutcome::Progress { next_step: 1 }
     }
 
     fn matches_step(&self, step_index: usize, packet: &KnockPacket) -> bool {

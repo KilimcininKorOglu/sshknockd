@@ -37,6 +37,7 @@ cargo test
 | `sequence_window`           |                                `5` | İlk geçerli knock step ile son geçerli step arasında izin verilen maksimum saniye.     |
 | `ip_timeout`                |                               `10` | Başarılı knock yapan source IP adresinin ipset içinde izinli kalacağı saniye.          |
 | `partial_state_timeout`     |                               `10` | Eksik per-source knock state temizlenmeden önce beklenecek saniye.                     |
+| `max_partial_states`        |                             `4096` | Eşzamanlı eksik per-source knock state entry üst sınırı.                               |
 | `max_payload_size`          |                              `512` | Packet oversized sayılmadan önce kabul edilen maksimum knock payload size.             |
 | `log_level`                 |                             `info` | Audit verbosity. `info` security state change’leri loglar; `debug` ve `trace` bounded packet telemetry ekler. |
 | `log_file`                  | `/var/log/sshknockd/sshknockd.log` | SIEM odaklı audit log dosya yolu.                                                      |

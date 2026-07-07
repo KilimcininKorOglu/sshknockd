@@ -10,6 +10,7 @@ ipset_name = "ssh_allow"
 sequence_window = 5
 ip_timeout = 10
 partial_state_timeout = 10
+max_partial_states = 4096
 max_payload_size = 512
 log_level = "info"
 
@@ -173,6 +174,13 @@ fn rejects_tcp_knock_port_matching_ssh_port_because_protected_service_must_not_b
 fn rejects_oversized_steps_because_large_packets_must_not_drive_processing() {
     let mut config = valid_config();
     config.knock.sequence[0].size = 513;
+    assert!(config.validate().is_err());
+}
+
+#[test]
+fn rejects_zero_max_partial_states_because_incomplete_sequences_must_be_bounded() {
+    let mut config = valid_config();
+    config.max_partial_states = 0;
     assert!(config.validate().is_err());
 }
 

@@ -37,6 +37,7 @@ See [sshknockd.toml](sshknockd.toml).
 | `sequence_window`           |                                `5` | Maximum seconds allowed from the first valid knock step to the final valid step.            |
 | `ip_timeout`                |                               `10` | Seconds that a successfully knocking source IP remains allowed in ipset.                    |
 | `partial_state_timeout`     |                               `10` | Seconds before incomplete per-source knock state is removed.                                |
+| `max_partial_states`        |                             `4096` | Maximum number of concurrent incomplete per-source knock states.                            |
 | `max_payload_size`          |                              `512` | Maximum accepted knock payload size before the packet is treated as oversized.              |
 | `log_level`                 |                             `info` | Audit verbosity. `info` logs security state changes; `debug` and `trace` add bounded packet telemetry. |
 | `log_file`                  | `/var/log/sshknockd/sshknockd.log` | SIEM-oriented audit log file path.                                                          |

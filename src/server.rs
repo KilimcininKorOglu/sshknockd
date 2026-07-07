@@ -35,6 +35,7 @@ impl Server {
             config.knock.sequence.clone(),
             Duration::from_secs(config.sequence_window),
             Duration::from_secs(config.partial_state_timeout),
+            config.max_partial_states,
             config.max_payload_size,
         );
         let firewall = Firewall::new(
@@ -212,8 +213,10 @@ impl Server {
         if !self.packet_telemetry_enabled() || !self.packet_telemetry_limiter.allow("packet", now) {
             return Ok(());
         }
-        self.logger
-            .log("packet_seen", &format!("source_ip={source_ip} observed=true"))?;
+        self.logger.log(
+            "packet_seen",
+            &format!("source_ip={source_ip} observed=true"),
+        )?;
         self.logger.log(
             "knock_outcome",
             &format!(
@@ -334,6 +337,7 @@ mod tests {
             sequence_window: 5,
             ip_timeout: 10,
             partial_state_timeout: 10,
+            max_partial_states: 4096,
             max_payload_size: 512,
             log_level: log_level.to_string(),
             log_file: log_file.path().to_string_lossy().into_owned(),

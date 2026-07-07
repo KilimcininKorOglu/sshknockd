@@ -6,6 +6,7 @@ use std::path::Path;
 const DEFAULT_SEQUENCE_WINDOW: u64 = 5;
 const DEFAULT_IP_TIMEOUT: u64 = 10;
 const DEFAULT_PARTIAL_STATE_TIMEOUT: u64 = 10;
+const DEFAULT_MAX_PARTIAL_STATES: usize = 4096;
 const DEFAULT_MAX_PAYLOAD_SIZE: usize = 512;
 const DEFAULT_INVALID_BURST_LIMIT: u32 = 20;
 const DEFAULT_INVALID_REFILL_PER_MINUTE: u32 = 10;
@@ -63,6 +64,8 @@ pub struct Config {
     pub ip_timeout: u64,
     #[serde(default = "default_partial_state_timeout")]
     pub partial_state_timeout: u64,
+    #[serde(default = "default_max_partial_states")]
+    pub max_partial_states: usize,
     #[serde(default = "default_max_payload_size")]
     pub max_payload_size: usize,
     #[serde(default = "default_log_level")]
@@ -98,6 +101,10 @@ fn default_ip_timeout() -> u64 {
 
 fn default_partial_state_timeout() -> u64 {
     DEFAULT_PARTIAL_STATE_TIMEOUT
+}
+
+fn default_max_partial_states() -> usize {
+    DEFAULT_MAX_PARTIAL_STATES
 }
 
 fn default_max_payload_size() -> usize {
@@ -156,6 +163,9 @@ impl Config {
         }
         if self.partial_state_timeout == 0 {
             bail!("partial_state_timeout must be greater than zero");
+        }
+        if self.max_partial_states == 0 {
+            bail!("max_partial_states must be greater than zero");
         }
         if self.ip_timeout == 0 {
             bail!("ip_timeout must be greater than zero");

@@ -6,6 +6,7 @@ address_family = "ipv4"
 sequence_window = 5
 ip_timeout = 10
 partial_state_timeout = 10
+max_partial_states = 4096
 max_payload_size = 512
 log_level = "info"
 log_file = "/var/log/sshknockd/sshknockd.log"

@@ -11,7 +11,16 @@ permissions:
 
 jobs:
   build-packages:
-    runs-on: ubuntu-latest
+    name: Build packages (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -25,7 +34,7 @@ jobs:
       - name: Test
         run: cargo test --locked
 
-      - name: Build release binaries
+      - name: Build release binary
         run: cargo build --release --locked
 
       - name: Build Debian package
@@ -37,18 +46,35 @@ jobs:
       - name: Upload package artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: sshknockd-packages
+          name: sshknockd-packages-${{ matrix.arch }}
           path: |
             target/debian/*.deb
             target/generate-rpm/*.rpm
 
+  publish-release:
+    name: Publish GitHub release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build-packages
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download package artifacts
+        uses: actions/download-artifact@v6
+        with:
+          path: dist
+          pattern: sshknockd-packages-*
+          merge-multiple: true
+
       - name: Publish GitHub release
-        if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          mapfile -t packages < <(find dist -type f \( -name '*.deb' -o -name '*.rpm' \) | sort)
+          if [ "${#packages[@]}" -eq 0 ]; then
+            echo "No packages found"
+            exit 1
+          fi
           gh release create "${GITHUB_REF_NAME}" \
-            target/debian/*.deb \
-            target/generate-rpm/*.rpm \
+            "${packages[@]}" \
+            --repo "${GITHUB_REPOSITORY}" \
             --title "${GITHUB_REF_NAME}" \
             --generate-notes

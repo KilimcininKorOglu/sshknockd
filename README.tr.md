@@ -23,7 +23,7 @@ cargo test
 
 ## Örnek yapılandırma
 
-`sshknock.toml` dosyasına bakın.
+[sshknock.toml](sshknock.toml) dosyasına bakın.
 
 ## Server yapılandırma referansı
 
@@ -61,7 +61,7 @@ cargo deb
 cargo generate-rpm
 ```
 
-Paketler `sshknockd(8)` man sayfasını içerir. Paket kurulduktan sonra daemon, administrative command ve helper subcommand reference için `man sshknockd` kullanın.
+Paketler `sshknockd(8)` man sayfasını içerir ve `amd64` ile `arm64` release target’ları için build edilir. Paket kurulduktan sonra daemon, administrative command ve helper subcommand reference için `man sshknockd` kullanın.
 
 Temiz local package çıktısı için package adı değiştikten sonra stale artifact’leri kaldırın veya paketleri yeniden build etmeden önce `cargo clean` çalıştırın.
 

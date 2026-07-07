@@ -23,7 +23,7 @@ cargo test
 
 ## Example configuration
 
-See `sshknock.toml`.
+See [sshknock.toml](sshknock.toml).
 
 ## Server configuration reference
 
@@ -61,7 +61,7 @@ cargo deb
 cargo generate-rpm
 ```
 
-The packages include the `sshknockd(8)` man page. After installing a package, use `man sshknockd` for the daemon, administrative commands, and helper subcommands reference.
+The packages include the `sshknockd(8)` man page and are built for `amd64` and `arm64` release targets. After installing a package, use `man sshknockd` for the daemon, administrative commands, and helper subcommands reference.
 
 For clean local package output, remove stale artifacts or run `cargo clean` before rebuilding packages after renaming the package.
 

@@ -38,6 +38,8 @@ systemd-units = [{ unit-name = "sshknockd", unit-scripts = "packaging/debian", e
 assets = [
     ["target/release/sshknockd", "usr/bin/", "755"],
     ["sshknockd.toml", "etc/sshknockd.toml", "600"],
+    ["README.md", "usr/share/doc/sshknockd/README.md", "644"],
+    ["README.tr.md", "usr/share/doc/sshknockd/README.tr.md", "644"],
     ["packaging/man/sshknockd.8", "usr/share/man/man8/sshknockd.8", "644"],
 ]
 
@@ -46,6 +48,8 @@ post_install_script = "packaging/rpm/postinstall.sh"
 assets = [
     { source = "target/release/sshknockd", dest = "/usr/bin/sshknockd", mode = "755" },
     { source = "sshknockd.toml", dest = "/etc/sshknockd.toml", mode = "600", config = true },
+    { source = "README.md", dest = "/usr/share/doc/sshknockd/README.md", mode = "644", doc = true },
+    { source = "README.tr.md", dest = "/usr/share/doc/sshknockd/README.tr.md", mode = "644", doc = true },
     { source = "packaging/rpm/sshknockd.service", dest = "/usr/lib/systemd/system/sshknockd.service", mode = "644" },
     { source = "packaging/man/sshknockd.8", dest = "/usr/share/man/man8/sshknockd.8", mode = "644", doc = true },
 ]

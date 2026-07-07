@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use ssh_knock::config::{Config, Protocol};
 use ssh_knock::firewall::{Firewall, SystemCommandRunner};
 use ssh_knock::server::Server;
@@ -168,6 +169,7 @@ const GITHUB_REPO: &str = "sshknockd";
 struct ReleaseAsset {
     name: String,
     browser_download_url: String,
+    digest: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -188,6 +190,7 @@ fn update_from_latest_release() -> Result<()> {
     let asset = select_release_asset(&release, extension, arch)?;
     let package_path = PathBuf::from(format!("/tmp/sshknockd-update.{extension}"));
     download_package(&asset.browser_download_url, &package_path)?;
+    verify_package_digest(asset, &package_path)?;
     install_package(&package_path, extension)?;
     restart_service()?;
     fs::remove_file(&package_path).ok();
@@ -251,11 +254,32 @@ fn select_release_asset<'a>(
     extension: &str,
     arch: &str,
 ) -> Result<&'a ReleaseAsset> {
+    let arch_names = package_arch_names(extension, arch)?;
     release
         .assets
         .iter()
-        .find(|asset| asset.name.ends_with(&format!(".{extension}")) && asset.name.contains(arch))
-        .with_context(|| format!("release does not contain a .{extension} package for {arch}"))
+        .find(|asset| {
+            asset.name.ends_with(&format!(".{extension}"))
+                && arch_names
+                    .iter()
+                    .any(|arch_name| asset.name.contains(arch_name))
+        })
+        .with_context(|| {
+            format!(
+                "release does not contain a .{extension} package for any of: {}",
+                arch_names.join(", ")
+            )
+        })
+}
+
+fn package_arch_names(extension: &str, arch: &str) -> Result<Vec<&'static str>> {
+    match (extension, arch) {
+        ("deb", "amd64") => Ok(vec!["amd64"]),
+        ("deb", "arm64") => Ok(vec!["arm64"]),
+        ("rpm", "amd64") => Ok(vec!["x86_64"]),
+        ("rpm", "arm64") => Ok(vec!["aarch64", "arm64"]),
+        _ => bail!("unsupported package architecture mapping"),
+    }
 }
 
 fn download_package(url: &str, package_path: &Path) -> Result<()> {
@@ -273,6 +297,38 @@ fn download_package(url: &str, package_path: &Path) -> Result<()> {
         .context("failed to execute curl")?;
     if !status.success() {
         bail!("curl failed to download update package");
+    }
+    Ok(())
+}
+
+fn verify_package_digest(asset: &ReleaseAsset, package_path: &Path) -> Result<()> {
+    let expected = asset
+        .digest
+        .as_deref()
+        .with_context(|| format!("release asset {} does not contain a digest", asset.name))?;
+    let expected_hash = expected
+        .strip_prefix("sha256:")
+        .with_context(|| format!("release asset {} digest is not sha256", asset.name))?;
+    if expected_hash.len() != 64
+        || !expected_hash
+            .chars()
+            .all(|character| character.is_ascii_hexdigit())
+    {
+        bail!("release asset {} has an invalid sha256 digest", asset.name);
+    }
+
+    let package = fs::read(package_path).with_context(|| {
+        format!(
+            "failed to read downloaded package {}",
+            package_path.display()
+        )
+    })?;
+    let actual_hash = format!("{:x}", Sha256::digest(&package));
+    if !actual_hash.eq_ignore_ascii_case(expected_hash) {
+        bail!(
+            "downloaded package digest mismatch for {}: expected sha256:{expected_hash}, got sha256:{actual_hash}",
+            asset.name
+        );
     }
     Ok(())
 }

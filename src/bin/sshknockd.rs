@@ -167,6 +167,8 @@ const GITHUB_OWNER: &str = "KilimcininKoroglu";
 const GITHUB_REPO: &str = "sshknockd";
 const CHECKSUM_MANIFEST: &str = "SHA256SUMS";
 const CHECKSUM_SIGNATURE: &str = "SHA256SUMS.sig";
+const CURL_CONNECT_TIMEOUT_SECS: &str = "10";
+const CURL_MAX_TIME_SECS: &str = "300";
 const RELEASE_SIGNING_PUBLIC_KEY: [u8; 32] = [
     0x5a, 0x2a, 0x99, 0xc1, 0x95, 0xe6, 0xeb, 0x89, 0xfb, 0xe9, 0x0c, 0xbf, 0x05, 0x19, 0x41, 0xa2,
     0x98, 0xaa, 0x75, 0xc4, 0x21, 0xf8, 0x44, 0xbb, 0xab, 0x86, 0xd7, 0x98, 0x04, 0x7d, 0x34, 0xbe,
@@ -215,10 +217,23 @@ fn update_from_latest_release() -> Result<()> {
     Ok(())
 }
 
+fn curl_common_args() -> [&'static str; 8] {
+    [
+        "--fail",
+        "--location",
+        "--show-error",
+        "--silent",
+        "--connect-timeout",
+        CURL_CONNECT_TIMEOUT_SECS,
+        "--max-time",
+        CURL_MAX_TIME_SECS,
+    ]
+}
+
 fn fetch_latest_release() -> Result<GitHubRelease> {
     let url = format!("https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest");
     let output = Command::new("curl")
-        .args(["--fail", "--location", "--show-error", "--silent"])
+        .args(curl_common_args())
         .args(["--header", "Accept: application/vnd.github+json"])
         .args(["--header", "X-GitHub-Api-Version: 2026-03-10"])
         .arg("--user-agent")
@@ -309,13 +324,8 @@ fn package_arch_names(extension: &str, arch: &str) -> Result<Vec<&'static str>> 
 
 fn download_package(url: &str, package_path: &Path) -> Result<()> {
     let status = Command::new("curl")
-        .args([
-            "--fail",
-            "--location",
-            "--show-error",
-            "--silent",
-            "--output",
-        ])
+        .args(curl_common_args())
+        .arg("--output")
         .arg(package_path)
         .arg(url)
         .status()
@@ -458,6 +468,22 @@ mod tests {
         0x46, 0x83, 0xd7, 0x4b, 0x66, 0x17, 0x59, 0xd6, 0x30, 0x75, 0xd3, 0xd2, 0x43, 0x97, 0x44,
         0xe4, 0xa5, 0x0f, 0x07,
     ];
+
+    #[test]
+    fn common_curl_args_include_bounded_timeouts() {
+        let args = curl_common_args();
+
+        assert!(
+            args.windows(2)
+                .any(|pair| pair == ["--connect-timeout", CURL_CONNECT_TIMEOUT_SECS])
+        );
+        assert!(
+            args.windows(2)
+                .any(|pair| pair == ["--max-time", CURL_MAX_TIME_SECS])
+        );
+        assert!(CURL_CONNECT_TIMEOUT_SECS.parse::<u64>().unwrap() > 0);
+        assert!(CURL_MAX_TIME_SECS.parse::<u64>().unwrap() > 0);
+    }
 
     #[test]
     fn verifies_manifest_signature_for_release_checksums() {

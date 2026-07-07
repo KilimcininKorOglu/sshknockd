@@ -61,7 +61,7 @@ cargo deb
 cargo generate-rpm
 ```
 
-The packages include man pages for `sshknockd(8)` and `sshknock(1)`. After installing a package, use `man sshknockd` and `man sshknock` for local command reference.
+The packages include the `sshknockd(8)` man page. After installing a package, use `man sshknockd` for the daemon, administrative commands, and helper subcommands reference.
 
 For clean local package output, remove stale artifacts or run `cargo clean` before rebuilding packages after renaming the package.
 

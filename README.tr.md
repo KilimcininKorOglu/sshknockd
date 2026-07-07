@@ -61,7 +61,7 @@ cargo deb
 cargo generate-rpm
 ```
 
-Paketler `sshknockd(8)` ve `sshknock(1)` man sayfalarını içerir. Paket kurulduktan sonra local command reference için `man sshknockd` ve `man sshknock` kullanın.
+Paketler `sshknockd(8)` man sayfasını içerir. Paket kurulduktan sonra daemon, administrative command ve helper subcommand reference için `man sshknockd` kullanın.
 
 Temiz local package çıktısı için package adı değiştikten sonra stale artifact’leri kaldırın veya paketleri yeniden build etmeden önce `cargo clean` çalıştırın.
 

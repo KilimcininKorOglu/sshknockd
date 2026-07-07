@@ -1,6 +1,11 @@
 # SSHKnock
 
-[English README](README.md)
+[English](README.md)
+
+[![Packages](https://github.com/KilimcininKoroglu/sshknockd/actions/workflows/packages.yml/badge.svg)](https://github.com/KilimcininKoroglu/sshknockd/actions/workflows/packages.yml)
+[![Son Release](https://img.shields.io/github/v/release/KilimcininKoroglu/sshknockd?sort=semver)](https://github.com/KilimcininKoroglu/sshknockd/releases/latest)
+[![Release Downloads](https://img.shields.io/github/downloads/KilimcininKoroglu/sshknockd/total)](https://github.com/KilimcininKoroglu/sshknockd/releases)
+[![License](https://img.shields.io/github/license/KilimcininKoroglu/sshknockd)](LICENSE)
 
 SSHKnock, SSH erişim kontrolü için hafif bir server-side port knocking servisidir. Kaynak IP yapılandırılmış knock sequence göndermeden SSH portunu kapalı tutar.
 

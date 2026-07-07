@@ -238,12 +238,16 @@ fn update_from_latest_release() -> Result<()> {
     Ok(())
 }
 
-fn curl_common_args() -> [&'static str; 8] {
+fn curl_common_args() -> [&'static str; 12] {
     [
         "--fail",
         "--location",
         "--show-error",
         "--silent",
+        "--proto",
+        "=https",
+        "--proto-redir",
+        "=https",
         "--connect-timeout",
         CURL_CONNECT_TIMEOUT_SECS,
         "--max-time",
@@ -343,7 +347,15 @@ fn package_arch_names(extension: &str, arch: &str) -> Result<Vec<&'static str>> 
     }
 }
 
+fn ensure_https_url(url: &str) -> Result<()> {
+    if !url.starts_with("https://") {
+        bail!("release asset download URL must use HTTPS");
+    }
+    Ok(())
+}
+
 fn download_package(url: &str, package_path: &Path) -> Result<()> {
+    ensure_https_url(url)?;
     let status = Command::new("curl")
         .args(curl_common_args())
         .arg("--output")
@@ -494,6 +506,11 @@ mod tests {
     fn common_curl_args_include_bounded_timeouts() {
         let args = curl_common_args();
 
+        assert!(args.windows(2).any(|pair| pair == ["--proto", "=https"]));
+        assert!(
+            args.windows(2)
+                .any(|pair| pair == ["--proto-redir", "=https"])
+        );
         assert!(
             args.windows(2)
                 .any(|pair| pair == ["--connect-timeout", CURL_CONNECT_TIMEOUT_SECS])
@@ -504,6 +521,21 @@ mod tests {
         );
         assert!(CURL_CONNECT_TIMEOUT_SECS.parse::<u64>().unwrap() > 0);
         assert!(CURL_MAX_TIME_SECS.parse::<u64>().unwrap() > 0);
+    }
+
+    #[test]
+    fn accepts_https_release_asset_urls_because_updater_downloads_require_tls() {
+        ensure_https_url("https://example.invalid/package.deb").unwrap();
+    }
+
+    #[test]
+    fn rejects_http_release_asset_urls_because_updater_downloads_require_tls() {
+        assert!(ensure_https_url("http://example.invalid/package.deb").is_err());
+    }
+
+    #[test]
+    fn rejects_file_release_asset_urls_because_updater_downloads_require_tls() {
+        assert!(ensure_https_url("file:///tmp/package.deb").is_err());
     }
 
     #[test]

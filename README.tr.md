@@ -143,7 +143,7 @@ Built-in GitHub repository’den update edin ve servisi restart edin:
 sudo sshknockd update
 ```
 
-Komut `KilimcininKoroglu/sshknockd` içindeki latest release’i kontrol eder, installed version ile karşılaştırır, Debian veya Ubuntu için `.deb`, CentOS, Fedora, RHEL, Rocky Linux veya AlmaLinux için `.rpm` package seçer, indirilen paketi GitHub release asset `sha256` digest değeriyle doğrular, `dpkg -i` veya `rpm -Uvh` ile kurar ve ardından `systemctl restart sshknockd` çalıştırır.
+Komut `KilimcininKoroglu/sshknockd` içindeki latest release’i kontrol eder, installed version ile karşılaştırır, Debian veya Ubuntu için `.deb`, CentOS, Fedora, RHEL, Rocky Linux veya AlmaLinux için `.rpm` package seçer, package, checksum ve signature release asset indirmelerini redirect’ler dahil yalnızca HTTPS ile sınırlandırır, indirilen paketi GitHub release asset `sha256` digest değeriyle doğrular, `dpkg -i` veya `rpm -Uvh` ile kurar ve ardından `systemctl restart sshknockd` çalıştırır.
 
 Release asset adları package extension ve architecture içermelidir. x86_64 Debian veya Ubuntu için `.deb` asset adı `amd64` içermelidir. x86_64 RPM tabanlı sistemler için `.rpm` asset adı `x86_64` içermelidir. ARM64 sistemler için asset adları `arm64` veya `aarch64` içermelidir.
 

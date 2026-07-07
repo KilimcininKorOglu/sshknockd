@@ -143,7 +143,7 @@ Update from the built-in GitHub repository and restart the service:
 sudo sshknockd update
 ```
 
-The command checks the latest release at `KilimcininKoroglu/sshknockd`, compares it with the installed version, selects a `.deb` package on Debian or Ubuntu and a `.rpm` package on CentOS, Fedora, RHEL, Rocky Linux, or AlmaLinux, verifies the downloaded package against the GitHub release asset `sha256` digest, installs it with `dpkg -i` or `rpm -Uvh`, then runs `systemctl restart sshknockd`.
+The command checks the latest release at `KilimcininKoroglu/sshknockd`, compares it with the installed version, selects a `.deb` package on Debian or Ubuntu and a `.rpm` package on CentOS, Fedora, RHEL, Rocky Linux, or AlmaLinux, restricts package, checksum, and signature release asset downloads to HTTPS including redirects, verifies the downloaded package against the GitHub release asset `sha256` digest, installs it with `dpkg -i` or `rpm -Uvh`, then runs `systemctl restart sshknockd`.
 
 Release assets must include the package extension and architecture in the file name. Debian or Ubuntu on x86_64 should publish a `.deb` asset containing `amd64`; RPM-based x86_64 systems should publish a `.rpm` asset containing `x86_64`. ARM64 systems should publish assets containing `arm64` or `aarch64`.
 

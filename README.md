@@ -45,8 +45,8 @@ See [sshknockd.toml](sshknockd.toml).
 | `ban_timeout`               |                            `86400` | Seconds that a rate-limited source IP remains in the ban ipset.                             |
 | `ban_ipset_name`            |                    `sshknockd_ban` | ipset set name used for 24-hour source IP bans.                                             |
 | `knock.sequence[].protocol` |                              `udp` | Knock transport for a step. Supported values are `udp`, `tcp`, and `icmp`.                  |
-| `knock.sequence[].port`     |                            `40101` | Destination port for `udp` and `tcp` steps. Omit for `icmp`.                                |
-| `knock.sequence[].size`     |                               `64` | Exact payload size required for the step.                                                   |
+| `knock.sequence[].port`     |                `0` until replaced | Destination port for `udp` and `tcp` steps. Replace placeholder ports before starting.       |
+| `knock.sequence[].size`     |                       site-specific | Exact payload size required for the step.                                                   |
 
 IPv4 uses `iptables` plus `ipset hash:ip`. IPv6 uses `ip6tables` plus `ipset hash:ip family inet6`.
 
@@ -98,7 +98,7 @@ Edit the installed configuration before opening firewall access:
 sudo editor /etc/sshknockd.toml
 ```
 
-Set at least these values for your server:
+The packaged configuration contains placeholder knock ports and will not start until you replace them. Set at least these values for your server:
 
 - `listen`: address used by the knock listeners.
 - `ssh_port`: the SSH server port to protect.
@@ -106,7 +106,7 @@ Set at least these values for your server:
 - `ban_ipset_name`: rate-limit ban set.
 - `invalid_burst_limit` and `invalid_refill_per_minute`: rate-limit policy.
 - `ban_timeout`: ban duration in seconds.
-- `knock.sequence`: protocol, port, and packet size sequence.
+- `knock.sequence`: deployment-specific protocol, port, and packet size sequence.
 
 ### Configure firewall rules
 
@@ -149,10 +149,12 @@ Release assets must include the package extension and architecture in the file n
 
 ## Clientless knock examples
 
+Replace every `<PORT*>` and `<SIZE*>` value with the deployment-specific sequence from `/etc/sshknockd.toml`.
+
 ```sh
-printf '%064s' '' | tr ' ' A | nc -u -w1 server.example.com 40101
-printf '%128s' '' | tr ' ' B | nc -u -w1 server.example.com 40102
-printf '%096s' '' | tr ' ' C | nc -u -w1 server.example.com 40103
+printf '%0<SIZE1>s' '' | tr ' ' A | nc -u -w1 server.example.com <PORT1>
+printf '%0<SIZE2>s' '' | tr ' ' B | nc -u -w1 server.example.com <PORT2>
+printf '%0<SIZE3>s' '' | tr ' ' C | nc -u -w1 server.example.com <PORT3>
 ssh -p 10022 user@server.example.com
 ```
 
@@ -161,5 +163,5 @@ Host protected-server
     HostName server.example.com
     Port 10022
     User user
-    ProxyCommand sh -c 'printf "%064s" "" | tr " " A | nc -u -w1 %h 40101; printf "%128s" "" | tr " " B | nc -u -w1 %h 40102; printf "%096s" "" | tr " " C | nc -u -w1 %h 40103; sleep 1; nc %h %p'
+    ProxyCommand sh -c 'printf "%0<SIZE1>s" "" | tr " " A | nc -u -w1 %h <PORT1>; printf "%0<SIZE2>s" "" | tr " " B | nc -u -w1 %h <PORT2>; printf "%0<SIZE3>s" "" | tr " " C | nc -u -w1 %h <PORT3>; sleep 1; nc %h %p'
 ```

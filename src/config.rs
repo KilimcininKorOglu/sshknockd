@@ -181,6 +181,9 @@ impl Config {
                     let port = step
                         .port
                         .context("tcp and udp knock steps require a port")?;
+                    if port == 0 {
+                        bail!("tcp and udp knock step ports must be greater than zero");
+                    }
                     if port == self.ssh_port {
                         bail!("ssh_port must not overlap knock listener ports");
                     }

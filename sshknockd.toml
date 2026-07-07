@@ -14,17 +14,18 @@ invalid_refill_per_minute = 10
 ban_timeout = 86400
 ban_ipset_name = "sshknockd_ban"
 
+# Replace every placeholder port before starting the daemon.
 [[knock.sequence]]
 protocol = "udp"
-port = 40101
+port = 0
 size = 64
 
 [[knock.sequence]]
 protocol = "udp"
-port = 40102
+port = 0
 size = 128
 
 [[knock.sequence]]
 protocol = "udp"
-port = 40103
+port = 0
 size = 96

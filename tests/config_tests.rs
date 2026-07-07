@@ -39,9 +39,9 @@ fn accepts_valid_configuration_because_daemon_needs_safe_startup_inputs() {
 }
 
 #[test]
-fn parses_example_config_because_packaged_defaults_must_remain_valid() {
+fn rejects_packaged_placeholder_config_because_default_sequence_must_not_be_reusable() {
     let config = Config::from_path(Path::new("sshknockd.toml"));
-    assert!(config.is_ok());
+    assert!(config.is_err());
 }
 
 #[test]
@@ -144,6 +144,13 @@ fn rejects_short_sequences_because_single_packets_are_too_easy_to_guess() {
 fn rejects_duplicate_ports_because_sequence_steps_must_be_unambiguous() {
     let mut config = valid_config();
     config.knock.sequence[1].port = config.knock.sequence[0].port;
+    assert!(config.validate().is_err());
+}
+
+#[test]
+fn rejects_zero_knock_ports_because_placeholders_must_be_replaced() {
+    let mut config = valid_config();
+    config.knock.sequence[0].port = Some(0);
     assert!(config.validate().is_err());
 }
 

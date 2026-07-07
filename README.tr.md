@@ -45,8 +45,8 @@ cargo test
 | `ban_timeout`               |                            `86400` | Rate limit’e takılan source IP’nin ban ipset içinde kalacağı saniye.                   |
 | `ban_ipset_name`            |                    `sshknockd_ban` | 24 saatlik source IP ban’leri için kullanılan ipset adı.                               |
 | `knock.sequence[].protocol` |                              `udp` | Step için knock transport. Desteklenen değerler `udp`, `tcp` ve `icmp`.                |
-| `knock.sequence[].port`     |                            `40101` | `udp` ve `tcp` step’leri için destination port. `icmp` için atlayın.                   |
-| `knock.sequence[].size`     |                               `64` | Step için gereken tam payload size.                                                    |
+| `knock.sequence[].port`     |          değiştirilene kadar `0` | `udp` ve `tcp` step’leri için destination port. Başlatmadan önce placeholder portları değiştirin. |
+| `knock.sequence[].size`     |                    site-specific | Step için gereken tam payload size.                                                    |
 
 IPv4, `iptables` ve `ipset hash:ip` kullanır. IPv6, `ip6tables` ve `ipset hash:ip family inet6` kullanır.
 
@@ -98,7 +98,7 @@ Firewall erişimini açmadan önce kurulu config dosyasını düzenleyin:
 sudo editor /etc/sshknockd.toml
 ```
 
-Server’ınız için en az şu değerleri ayarlayın:
+Paketlenen config placeholder knock portları içerir ve siz bunları değiştirmeden başlamaz. Server’ınız için en az şu değerleri ayarlayın:
 
 - `listen`: knock listener’ların kullanacağı adres.
 - `ssh_port`: korunacak SSH server portu.
@@ -106,7 +106,7 @@ Server’ınız için en az şu değerleri ayarlayın:
 - `ban_ipset_name`: rate-limit ban set’i.
 - `invalid_burst_limit` ve `invalid_refill_per_minute`: rate-limit policy.
 - `ban_timeout`: saniye cinsinden ban süresi.
-- `knock.sequence`: protocol, port ve packet size sequence.
+- `knock.sequence`: deployment-specific protocol, port ve packet size sequence.
 
 ### Firewall kurallarını yapılandırma
 
@@ -149,10 +149,12 @@ Release asset adları package extension ve architecture içermelidir. x86_64 Deb
 
 ## Clientless knock örnekleri
 
+Her `<PORT*>` ve `<SIZE*>` değerini `/etc/sshknockd.toml` içindeki deployment-specific sequence ile değiştirin.
+
 ```sh
-printf '%064s' '' | tr ' ' A | nc -u -w1 server.example.com 40101
-printf '%128s' '' | tr ' ' B | nc -u -w1 server.example.com 40102
-printf '%096s' '' | tr ' ' C | nc -u -w1 server.example.com 40103
+printf '%0<SIZE1>s' '' | tr ' ' A | nc -u -w1 server.example.com <PORT1>
+printf '%0<SIZE2>s' '' | tr ' ' B | nc -u -w1 server.example.com <PORT2>
+printf '%0<SIZE3>s' '' | tr ' ' C | nc -u -w1 server.example.com <PORT3>
 ssh -p 10022 user@server.example.com
 ```
 
@@ -161,5 +163,5 @@ Host protected-server
     HostName server.example.com
     Port 10022
     User user
-    ProxyCommand sh -c 'printf "%064s" "" | tr " " A | nc -u -w1 %h 40101; printf "%128s" "" | tr " " B | nc -u -w1 %h 40102; printf "%096s" "" | tr " " C | nc -u -w1 %h 40103; sleep 1; nc %h %p'
+    ProxyCommand sh -c 'printf "%0<SIZE1>s" "" | tr " " A | nc -u -w1 %h <PORT1>; printf "%0<SIZE2>s" "" | tr " " B | nc -u -w1 %h <PORT2>; printf "%0<SIZE3>s" "" | tr " " C | nc -u -w1 %h <PORT3>; sleep 1; nc %h %p'
 ```

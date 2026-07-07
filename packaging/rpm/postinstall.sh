@@ -6,7 +6,7 @@ if command -v systemctl >/dev/null 2>&1; then
 fi
 cat <<'EOF'
 
-SSHKnockd was installed.
+sshknockd was installed.
 
 Next steps:
   1. Edit /etc/sshknockd.toml for your server.

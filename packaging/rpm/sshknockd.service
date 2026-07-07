@@ -1,5 +1,5 @@
 [Unit]
-Description=SSHKnock port knocking daemon
+Description=sshknockd port knocking daemon
 After=network-online.target
 Wants=network-online.target
 Documentation=file:/usr/share/doc/sshknockd/README.md

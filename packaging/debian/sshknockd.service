@@ -6,7 +6,7 @@ Documentation=file:/usr/share/doc/sshknockd/README.md
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/sshknockd --config /etc/sshknock.toml
+ExecStart=/usr/bin/sshknockd --config /etc/sshknockd.toml
 Restart=on-failure
 RestartSec=2s
 User=root

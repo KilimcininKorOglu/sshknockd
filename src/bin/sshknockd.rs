@@ -16,7 +16,7 @@ use std::time::Duration;
 #[command(name = "sshknockd")]
 #[command(about = "Server-side SSH port knocking daemon and helper CLI")]
 struct Args {
-    #[arg(short, long, default_value = "/etc/sshknock.toml")]
+    #[arg(short, long, default_value = "/etc/sshknockd.toml")]
     config: PathBuf,
     #[command(subcommand)]
     command: Option<CommandKind>,

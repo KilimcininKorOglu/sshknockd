@@ -1,4 +1,4 @@
-# SSHKnock
+# sshknockd
 
 [Türkçe](README.tr.md)
 
@@ -7,7 +7,7 @@
 [![Release Downloads](https://img.shields.io/github/downloads/KilimcininKoroglu/sshknockd/total)](https://github.com/KilimcininKoroglu/sshknockd/releases)
 [![License](https://img.shields.io/github/license/KilimcininKoroglu/sshknockd)](LICENSE)
 
-SSHKnock is a lightweight server-side port knocking service for SSH access control. It keeps the SSH port closed until a source IP sends the configured knock sequence.
+sshknockd is a lightweight server-side port knocking service for SSH access control. It keeps the SSH port closed until a source IP sends the configured knock sequence.
 
 ## Build
 
@@ -23,7 +23,7 @@ cargo test
 
 ## Example configuration
 
-See [sshknock.toml](sshknock.toml).
+See [sshknockd.toml](sshknockd.toml).
 
 ## Server configuration reference
 
@@ -95,7 +95,7 @@ Use your platform package manager if `dnf` is not available.
 Edit the installed configuration before opening firewall access:
 
 ```sh
-sudo editor /etc/sshknock.toml
+sudo editor /etc/sshknockd.toml
 ```
 
 Set at least these values for your server:
@@ -110,10 +110,10 @@ Set at least these values for your server:
 
 ### Configure firewall rules
 
-Run the setup command once after editing `/etc/sshknock.toml`:
+Run the setup command once after editing `/etc/sshknockd.toml`:
 
 ```sh
-sudo sshknockd --config /etc/sshknock.toml setup-firewall
+sudo sshknockd --config /etc/sshknockd.toml setup-firewall
 ```
 
 The package does not change firewall rules during package installation. The `setup-firewall` command creates the allow ipset, creates the ban ipset, accepts matching allowlisted sources for the protected SSH port, drops other traffic to the protected SSH port, and drops traffic from rate-limited banned sources.

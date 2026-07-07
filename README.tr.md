@@ -1,4 +1,4 @@
-# SSHKnock
+# sshknockd
 
 [English](README.md)
 
@@ -7,7 +7,7 @@
 [![Release Downloads](https://img.shields.io/github/downloads/KilimcininKoroglu/sshknockd/total)](https://github.com/KilimcininKoroglu/sshknockd/releases)
 [![License](https://img.shields.io/github/license/KilimcininKoroglu/sshknockd)](LICENSE)
 
-SSHKnock, SSH erişim kontrolü için hafif bir server-side port knocking servisidir. Kaynak IP yapılandırılmış knock sequence göndermeden SSH portunu kapalı tutar.
+sshknockd, SSH erişim kontrolü için hafif bir server-side port knocking servisidir. Kaynak IP yapılandırılmış knock sequence göndermeden SSH portunu kapalı tutar.
 
 ## Build
 
@@ -23,7 +23,7 @@ cargo test
 
 ## Örnek yapılandırma
 
-[sshknock.toml](sshknock.toml) dosyasına bakın.
+[sshknockd.toml](sshknockd.toml) dosyasına bakın.
 
 ## Server yapılandırma referansı
 
@@ -95,7 +95,7 @@ sudo rpm -Uvh ./sshknockd-0.1.0-1.x86_64.rpm
 Firewall erişimini açmadan önce kurulu config dosyasını düzenleyin:
 
 ```sh
-sudo editor /etc/sshknock.toml
+sudo editor /etc/sshknockd.toml
 ```
 
 Server’ınız için en az şu değerleri ayarlayın:
@@ -110,10 +110,10 @@ Server’ınız için en az şu değerleri ayarlayın:
 
 ### Firewall kurallarını yapılandırma
 
-`/etc/sshknock.toml` düzenlendikten sonra setup komutunu bir kez çalıştırın:
+`/etc/sshknockd.toml` düzenlendikten sonra setup komutunu bir kez çalıştırın:
 
 ```sh
-sudo sshknockd --config /etc/sshknock.toml setup-firewall
+sudo sshknockd --config /etc/sshknockd.toml setup-firewall
 ```
 
 Paket kurulumu sırasında firewall kuralları değiştirilmez. `setup-firewall` komutu allow ipset oluşturur, ban ipset oluşturur, protected SSH port için allowlisted source’ları kabul eder, protected SSH port’a gelen diğer trafiği düşürür ve rate limit nedeniyle banlanan source’lardan gelen trafiği düşürür.

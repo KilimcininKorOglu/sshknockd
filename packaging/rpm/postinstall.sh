@@ -9,9 +9,9 @@ cat <<'EOF'
 SSHKnockd was installed.
 
 Next steps:
-  1. Edit /etc/sshknock.toml for your server.
+  1. Edit /etc/sshknockd.toml for your server.
   2. Run the setup wizard command:
-       sudo sshknockd --config /etc/sshknock.toml setup-firewall
+       sudo sshknockd --config /etc/sshknockd.toml setup-firewall
   3. Start the daemon:
        sudo systemctl enable --now sshknockd
 

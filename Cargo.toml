@@ -37,7 +37,7 @@ maintainer-scripts = "packaging/debian"
 systemd-units = [{ unit-name = "sshknockd", unit-scripts = "packaging/debian", enable = false }]
 assets = [
     ["target/release/sshknockd", "usr/bin/", "755"],
-    ["sshknock.toml", "etc/sshknock.toml", "600"],
+    ["sshknockd.toml", "etc/sshknockd.toml", "600"],
     ["packaging/man/sshknockd.8", "usr/share/man/man8/sshknockd.8", "644"],
 ]
 
@@ -45,7 +45,7 @@ assets = [
 post_install_script = "packaging/rpm/postinstall.sh"
 assets = [
     { source = "target/release/sshknockd", dest = "/usr/bin/sshknockd", mode = "755" },
-    { source = "sshknock.toml", dest = "/etc/sshknock.toml", mode = "600", config = true },
+    { source = "sshknockd.toml", dest = "/etc/sshknockd.toml", mode = "600", config = true },
     { source = "packaging/rpm/sshknockd.service", dest = "/usr/lib/systemd/system/sshknockd.service", mode = "644" },
     { source = "packaging/man/sshknockd.8", dest = "/usr/share/man/man8/sshknockd.8", mode = "644", doc = true },
 ]

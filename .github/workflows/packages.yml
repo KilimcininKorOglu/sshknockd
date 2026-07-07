@@ -57,12 +57,28 @@ jobs:
     needs: build-packages
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
       - name: Download package artifacts
         uses: actions/download-artifact@v6
         with:
           path: dist
           pattern: sshknockd-packages-*
           merge-multiple: true
+
+      - name: Prepare release notes
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v version="${version}" '
+            $0 ~ "^## \\[" version "\\]" { capture = 1; print; next }
+            capture && $0 ~ "^## \\[" { exit }
+            capture { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "No CHANGELOG.md entry found for ${GITHUB_REF_NAME}" >&2
+            exit 1
+          fi
 
       - name: Publish GitHub release
         env:
@@ -77,4 +93,4 @@ jobs:
             "${packages[@]}" \
             --repo "${GITHUB_REPOSITORY}" \
             --title "${GITHUB_REF_NAME}" \
-            --generate-notes
+            --notes-file release-notes.md

@@ -7,110 +7,112 @@
 [![Release Downloads](https://img.shields.io/github/downloads/KilimcininKoroglu/sshknockd/total)](https://github.com/KilimcininKoroglu/sshknockd/releases)
 [![License](https://img.shields.io/github/license/KilimcininKoroglu/sshknockd)](LICENSE)
 
-sshknockd, SSH erişim kontrolü için hafif bir server-side port knocking servisidir. Kaynak IP yapılandırılmış knock sequence göndermeden SSH portunu kapalı tutar. Ürün akışı clientless çalışır: istemciler `nc`, shell redirection, `ping` veya SSH `ProxyCommand` gibi standart araçları kullanır; `sshknockd` client helper komutları sağlamaz.
+`sshknockd`, SSH erişim kontrolü için hafif bir server-side port knocking daemon'udur. Kaynak IP yapılandırılmış bir knock sequence göndermeden korunan SSH portunu kapalı tutar, ardından o kaynağı `ipset` ve `iptables` üzerinden geçici olarak kabul eder. Daemon, SSH portunun hedefsiz internet taramalarına ve otomatik brute-force trafiğine maruziyetini azaltır.
 
-## Build
+## Özellikler
 
-```sh
-cargo build --release
-```
+- Tasarım gereği clientless. İstemciler knock sequence'i `nc`, shell redirection, `ping` veya SSH `ProxyCommand` gibi standart araçlarla üretir. Ayrı bir client binary gerekmez.
+- UDP, TCP ve ICMP üzerinden çok protokollü knock step'leri, her biri gerekli tam payload size ile.
+- Kaynak IP'ye bağlı sequence state, sınırlı zaman penceresi ve eşzamanlı partial state'ler için kapasite sınırı ile.
+- Token bucket ile kaynak başına rate limiting. Kötüye kullanan kaynaklar yapılandırılabilir bir süre için ban `ipset`'ine taşınır.
+- `iptables` artı `ipset hash:ip` ve `ip6tables` artı `ipset hash:ip family inet6` üzerinden IPv4 ve IPv6 desteği.
+- Knock sequence'i veya onu yeniden oluşturmaya yetecek ayrıntıyı asla kaydetmeyen SIEM odaklı audit logging.
+- Gömülü bir ed25519 anahtarıyla doğrulanan, imzalı GitHub release paketlerinden kendini güncelleme.
+- `amd64` ve `arm64` için Debian ve RPM paketleri olarak, bir `systemd` unit ve `sshknockd(8)` man sayfası ile dağıtılır.
 
-## Test
+## Nasıl çalışır
 
-```sh
-cargo test
-```
+1. Daemon, yapılandırılmış sequence'teki her protokol ve port için listener'ları bağlar.
+2. Bir kaynak IP her knock step'ini sırayla, doğru protokol, hedef port ve tam payload size ile, `sequence_window` saniye içinde göndermelidir.
+3. Tam eşleşmede kaynak IP, `ip_timeout` saniyelik bir timeout ile allow `ipset`'ine eklenir. Firewall bu süre boyunca o kaynağı korunan SSH portunda kabul eder.
+4. Yanlış protokol, yanlış port, yanlış size veya timeout, o kaynak için partial sequence state'i sıfırlar.
+5. Invalid deneme rate limit'ini aşan kaynaklar, `ban_timeout` saniye için ban `ipset`'i üzerinden banlanır.
 
-## Örnek yapılandırma
+Knock sequence bir authentication değildir. Yakalanan bir sequence, uygun bir ağ yolundan yeniden gönderilebilir. Gerçek güvenlik sınırı SSH authentication olarak kalır.
 
-[sshknockd.toml](sshknockd.toml) dosyasına bakın.
+## Gereksinimler
 
-## Server yapılandırma referansı
+- `iptables` (veya `ip6tables`), `ipset` ve `curl` bulunan bir Linux sistemi.
+- Firewall kurallarını yönettiği için daemon'un root yetkisi.
+- Korunan `ssh_port` üzerinde dinleyen OpenSSH veya Dropbear gibi bir SSH server. `sshknockd`, SSH'ı gömmez veya değiştirmez; SSH server'ı ayrıca kurun ve yapılandırın.
 
-| Ayar                        |                   Varsayılan örnek | Anlamı                                                                                 |
-|-----------------------------|-----------------------------------:|----------------------------------------------------------------------------------------|
-| `listen`                    |                          `0.0.0.0` | `sshknockd` knock listener adresi. IPv6 listener için `::` kullanın.                   |
-| `ssh_port`                  |                            `10022` | Geçerli knock sequence sonrasında geçici olarak açılacak SSH TCP portu.                |
-| `ipset_name`                |                        `ssh_allow` | Geçici izin verilen source IP adreslerini tutan ipset adı.                             |
-| `firewall_backend`          |                         `iptables` | Firewall komut ailesi. IPv4 için `iptables`, IPv6 için `ip6tables`.                    |
-| `address_family`            |                             `ipv4` | ipset address family. Desteklenen değerler `ipv4` ve `ipv6`.                           |
-| `sequence_window`           |                                `5` | İlk geçerli knock step ile son geçerli step arasında izin verilen maksimum saniye.     |
-| `ip_timeout`                |                               `10` | Başarılı knock yapan source IP adresinin ipset içinde izinli kalacağı saniye.          |
-| `partial_state_timeout`     |                               `10` | Eksik per-source knock state temizlenmeden önce beklenecek saniye.                     |
-| `max_partial_states`        |                             `4096` | Eşzamanlı eksik per-source knock state entry üst sınırı.                               |
-| `max_payload_size`          |                              `512` | Packet oversized sayılmadan önce kabul edilen maksimum knock payload size.             |
-| `log_level`                 |                             `info` | Audit verbosity. `info` security state change’leri loglar; `debug` ve `trace` bounded packet telemetry ekler. |
-| `log_file`                  | `/var/log/sshknockd/sshknockd.log` | SIEM odaklı audit log dosya yolu.                                                      |
-| `invalid_burst_limit`       |                               `20` | Ban mantığı tetiklenmeden önce source başına izin verilen invalid packet burst değeri. |
-| `invalid_refill_per_minute` |                               `10` | Source başına her dakika geri eklenen invalid packet hakkı.                            |
-| `ban_timeout`               |                            `86400` | Rate limit’e takılan source IP’nin ban ipset içinde kalacağı saniye.                   |
-| `ban_ipset_name`            |                    `sshknockd_ban` | 24 saatlik source IP ban’leri için kullanılan ipset adı.                               |
-| `knock.sequence[].protocol` |                              `udp` | Step için knock transport. Desteklenen değerler `udp`, `tcp` ve `icmp`.                |
-| `knock.sequence[].port`     |          değiştirilene kadar `0` | `udp` ve `tcp` step’leri için destination port. Başlatmadan önce placeholder portları değiştirin. |
-| `knock.sequence[].size`     |                    site-specific | Step için gereken tam payload size.                                                    |
+## Kurulum
 
-IPv4, `iptables` ve `ipset hash:ip` kullanır. IPv6, `ip6tables` ve `ipset hash:ip family inet6` kullanır.
-
-OpenSSH, sshknockd için zorunlu değildir. Daemon bir TCP portunu korur, bu yüzden OpenSSH, Dropbear veya `ssh_port` üzerinde dinleyen başka bir SSH-compatible server korunabilir. SSH server’ınızı ayrıca kurun ve yapılandırın.
-
-## Paket build
-
-```sh
-cargo install cargo-deb --version 3.7.0
-cargo install cargo-generate-rpm --version 0.18.0 --locked
-cargo build --release
-cargo deb
-cargo generate-rpm
-```
-
-Paketler `sshknockd(8)` man sayfasını içerir ve `amd64` ile `arm64` release target’ları için build edilir. Paket kurulduktan sonra daemon ve administrative command reference için `man sshknockd` kullanın.
-
-Temiz local package çıktısı için package adı değiştikten sonra stale artifact’leri kaldırın veya paketleri yeniden build etmeden önce `cargo clean` çalıştırın.
-
-## Server kurulumu
+CPU architecture'ınıza uygun paketi [releases sayfasından](https://github.com/KilimcininKoroglu/sshknockd/releases/latest) indirin. x86_64 için `amd64` (`.deb`) veya `x86_64` (`.rpm`), ARM64 için `arm64` (`.deb`) veya `aarch64` (`.rpm`) kullanın.
 
 ### Debian ve Ubuntu
-
-`KilimcininKoroglu/sshknockd` GitHub releases sayfasından son `.deb` paketini indirin ve kurun:
 
 ```sh
 sudo apt-get update
 sudo apt-get install -y ipset iptables curl
-sudo dpkg -i ./sshknockd_0.1.0-1_amd64.deb
+sudo dpkg -i ./sshknockd_<sürüm>_amd64.deb
 ```
-
-CPU architecture’ınıza uygun paketi kullanın, örneğin x86_64 için `amd64`, ARM64 için `arm64`.
 
 ### CentOS, Fedora, RHEL, Rocky Linux ve AlmaLinux
 
-`KilimcininKoroglu/sshknockd` GitHub releases sayfasından son `.rpm` paketini indirin ve kurun:
-
 ```sh
 sudo dnf install -y ipset iptables curl
-sudo rpm -Uvh ./sshknockd-0.1.0-1.x86_64.rpm
+sudo rpm -Uvh ./sshknockd-<sürüm>.x86_64.rpm
 ```
 
-`dnf` yoksa platformunuzun package manager’ını kullanın.
+`dnf` yoksa platformunuzun package manager'ını kullanın. Paket kurulumu hiçbir firewall kuralını değiştirmez. Binary'yi, varsayılan `/etc/sshknockd.toml` dosyasını, `systemd` unit'ini ve man sayfasını kurar.
 
-### Server’ı yapılandırma
-
-Firewall erişimini açmadan önce kurulu config dosyasını düzenleyin:
+## Hızlı başlangıç
 
 ```sh
+# 1. Yapılandırmayı düzenleyin ve placeholder knock portlarını değiştirin.
 sudo editor /etc/sshknockd.toml
+
+# 2. ipset'leri ve firewall kurallarını bir kez oluşturun.
+sudo sshknockd --config /etc/sshknockd.toml setup-firewall
+
+# 3. Daemon'ı enable edin ve başlatın.
+sudo systemctl enable --now sshknockd
+
+# 4. Audit log'u izleyin.
+sudo tail -f /var/log/sshknockd/sshknockd.log
 ```
 
-Paketlenen config placeholder knock portları içerir ve siz bunları değiştirmeden başlamaz. Server’ınız için en az şu değerleri ayarlayın:
+Paketlenen yapılandırma, placeholder knock portları `0` olarak gelir ve siz bunları değiştirene kadar başlamaz.
 
-- `listen`: knock listener’ların kullanacağı adres.
-- `ssh_port`: korunacak SSH server portu.
-- `ipset_name`: geçici allowlist set’i.
-- `ban_ipset_name`: rate-limit ban set’i.
-- `invalid_burst_limit` ve `invalid_refill_per_minute`: rate-limit policy.
-- `ban_timeout`: saniye cinsinden ban süresi.
-- `knock.sequence`: deployment-specific protocol, port ve packet size sequence.
+## Yapılandırma
 
-### Firewall kurallarını yapılandırma
+Örnek yapılandırma [sshknockd.toml](sshknockd.toml) dosyasıdır. Kurulu yol `/etc/sshknockd.toml` şeklindedir.
+
+### Server ayarları
+
+| Ayar                        |                   Varsayılan örnek | Anlamı                                                                                 |
+|-----------------------------|-----------------------------------:|----------------------------------------------------------------------------------------|
+| `listen`                    |                          `0.0.0.0` | Knock listener'ların kullandığı yerel adres. IPv6 listener için `::` kullanın.         |
+| `ssh_port`                  |                            `10022` | Geçerli knock sequence sonrasında geçici olarak açılan SSH TCP portu.                  |
+| `ipset_name`                |                        `ssh_allow` | Geçici izin verilen source IP adreslerini tutan ipset adı.                             |
+| `firewall_backend`          |                         `iptables` | Firewall komut ailesi. IPv4 için `iptables`, IPv6 için `ip6tables`.                    |
+| `address_family`            |                             `ipv4` | ipset address family. Desteklenen değerler `ipv4` ve `ipv6`.                           |
+| `sequence_window`           |                                `5` | İlk geçerli knock step ile son geçerli step arasında izin verilen maksimum saniye (1 ile 60). |
+| `ip_timeout`                |                               `10` | Başarılı knock yapan source IP adresinin ipset içinde izinli kalacağı saniye.          |
+| `partial_state_timeout`     |                               `10` | Eksik per-source knock state temizlenmeden önce beklenecek saniye.                     |
+| `max_partial_states`        |                             `4096` | Eşzamanlı eksik per-source knock state üst sınırı.                                     |
+| `max_payload_size`          |                              `512` | Packet oversized sayılmadan önce kabul edilen maksimum knock payload size.             |
+| `log_level`                 |                             `info` | Audit verbosity. `info` security state change'leri loglar; `debug` ve `trace` bounded packet telemetry ekler. |
+| `log_file`                  | `/var/log/sshknockd/sshknockd.log` | SIEM odaklı audit log dosya yolu.                                                      |
+| `invalid_burst_limit`       |                               `20` | Ban mantığı tetiklenmeden önce source başına izin verilen invalid packet burst değeri. |
+| `invalid_refill_per_minute` |                               `10` | Source başına her dakika geri eklenen invalid packet hakkı.                            |
+| `ban_timeout`               |                            `86400` | Rate limit'e takılan source IP'nin ban ipset içinde kalacağı saniye.                   |
+| `ban_ipset_name`            |                    `sshknockd_ban` | Source IP ban'leri için kullanılan ipset adı.                                          |
+
+### Knock sequence
+
+Sequence en az üç step içermelidir. Her step bir protokol ve tam bir payload size gerektirir. TCP ve UDP step'leri ayrıca bir hedef port gerektirir.
+
+| Ayar                        |             Varsayılan örnek | Anlamı                                                               |
+|-----------------------------|-----------------------------:|----------------------------------------------------------------------|
+| `knock.sequence[].protocol` |                        `udp` | Step için knock transport. Desteklenen değerler `udp`, `tcp` ve `icmp`. |
+| `knock.sequence[].port`     |         değiştirilene kadar `0` | `udp` ve `tcp` step'leri için hedef port. `icmp` için belirtmeyin. `0` reddedilir. |
+| `knock.sequence[].size`     |                site-specific | Step için gereken tam payload size, 1 ile `max_payload_size` arasında. |
+
+Daemon yapılandırmayı başlangıçta doğrular ve bilinmeyen alanları reddeder, böylece bir yazım hatası güvenlik duruşunu sessizce değiştiremez. TCP ve UDP portları benzersiz olmalı ve `ssh_port` ile çakışmamalıdır. IPv4, `iptables` artı `ipset hash:ip` kullanır; IPv6, `ip6tables` artı `ipset hash:ip family inet6` kullanır.
+
+## Firewall kurulumu
 
 `/etc/sshknockd.toml` düzenlendikten sonra setup komutunu bir kez çalıştırın:
 
@@ -118,36 +120,21 @@ Paketlenen config placeholder knock portları içerir ve siz bunları değiştir
 sudo sshknockd --config /etc/sshknockd.toml setup-firewall
 ```
 
-Paket kurulumu sırasında firewall kuralları değiştirilmez. `setup-firewall` komutu allow ipset oluşturur, ban ipset oluşturur, protected SSH port için allowlisted source’ları kabul eder, protected SSH port’a gelen diğer trafiği düşürür ve rate limit nedeniyle banlanan source’lardan gelen trafiği düşürür.
+Komut allow ipset'i oluşturur, ban ipset'i oluşturur, korunan SSH portunda eşleşen allowlisted kaynakları kabul eder, korunan SSH portuna gelen diğer trafiği düşürür ve rate limit'e takılan banlı kaynaklardan gelen trafiği düşürür. Firewall kuralları paket kurulumu sırasında değiştirilmez.
 
-### Daemon’ı başlatma
+## Audit logging
 
-systemd servisini enable edin ve başlatın:
+Daemon, `log_file` içine SIEM odaklı audit event'leri yazar. `info` seviyesinde event'ler daemon startup, firewall preflight success veya failure, listener bind'ları, geçici SSH allow kayıtları, rate-limit ban'leri ve firewall command failures içerir. `debug` ve `trace`, source IP ile redacted observation ve outcome class içeren bounded packet observations ve knock outcomes ekler. Log'lar asla knock protokolünü, knock portunu, packet size'ı, sequence pozisyonunu veya tam knock sequence'i içermez.
 
-```sh
-sudo systemctl enable --now sshknockd
-sudo systemctl status sshknockd
-```
-
-Audit log’ları izleyin:
-
-```sh
-sudo tail -f /var/log/sshknockd/sshknockd.log
-```
-
-Daemon, `log_file` içine SIEM odaklı audit event’leri yazar. `info` seviyesinde event’ler daemon startup, firewall preflight success veya failure, listener bind’ları, temporary SSH allow entries, rate-limit bans ve firewall command failures içerir. `debug` ve `trace` ayrıca source IP ile redacted observation ve outcome class içeren bounded packet observations ile knock outcomes kayıtlarını etkinleştirir. Knock protocol, knock port, packet size, sequence position ve full knock sequence loglanmaz.
-
-### Update
-
-Built-in GitHub repository’den update edin ve servisi restart edin:
+## Güncelleme
 
 ```sh
 sudo sshknockd update
 ```
 
-Komut `KilimcininKoroglu/sshknockd` içindeki latest release’i kontrol eder, installed version ile karşılaştırır, Debian veya Ubuntu için `.deb`, CentOS, Fedora, RHEL, Rocky Linux veya AlmaLinux için `.rpm` package seçer, package, checksum ve signature release asset indirmelerini redirect’ler dahil yalnızca HTTPS ile sınırlandırır, indirilen paketi GitHub release asset `sha256` digest değeriyle doğrular, `dpkg -i` veya `rpm -Uvh` ile kurar ve ardından `systemctl restart sshknockd` çalıştırır.
+Komut, `KilimcininKoroglu/sshknockd` içindeki son release'i kontrol eder, kurulu sürümle karşılaştırır ve Debian veya Ubuntu için `.deb`, CentOS, Fedora, RHEL, Rocky Linux veya AlmaLinux için `.rpm` paketi seçer. Package, checksum ve signature indirmelerini redirect'ler dahil yalnızca HTTPS ile sınırlar, imzalı `SHA256SUMS` manifest'ini gömülü bir ed25519 public key ile doğrular, indirilen paketi manifest `sha256` digest değeriyle doğrular, `dpkg -i` veya `rpm -Uvh` ile kurar ve ardından `systemctl restart sshknockd` çalıştırır.
 
-Release asset adları package extension ve architecture içermelidir. x86_64 Debian veya Ubuntu için `.deb` asset adı `amd64` içermelidir. x86_64 RPM tabanlı sistemler için `.rpm` asset adı `x86_64` içermelidir. ARM64 sistemler için asset adları `arm64` veya `aarch64` içermelidir.
+Release asset adları package extension ve architecture içermelidir. x86_64 Debian veya Ubuntu, `amd64` içeren bir `.deb` asset yayınlar; x86_64 RPM tabanlı sistemler `x86_64` içeren bir `.rpm` asset yayınlar. ARM64 sistemler `arm64` veya `aarch64` içeren asset'ler yayınlar.
 
 ## Clientless knock örnekleri
 
@@ -160,6 +147,8 @@ printf '%0<SIZE3>s' '' | tr ' ' C | nc -u -w1 server.example.com <PORT3>
 ssh -p 10022 user@server.example.com
 ```
 
+Aynı sequence bir SSH `ProxyCommand` olarak da çalışır, böylece `ssh` bağlanmadan önce knock'u otomatik gönderir:
+
 ```sshconfig
 Host protected-server
     HostName server.example.com
@@ -167,3 +156,43 @@ Host protected-server
     User user
     ProxyCommand sh -c 'printf "%0<SIZE1>s" "" | tr " " A | nc -u -w1 %h <PORT1>; printf "%0<SIZE2>s" "" | tr " " B | nc -u -w1 %h <PORT2>; printf "%0<SIZE3>s" "" | tr " " C | nc -u -w1 %h <PORT3>; sleep 1; nc %h %p'
 ```
+
+## Kaynaktan build
+
+```sh
+cargo build --release --locked
+cargo test --all-targets --locked
+```
+
+Local paketleri build edin:
+
+```sh
+cargo install cargo-deb --version 3.7.0
+cargo install cargo-generate-rpm --version 0.18.0 --locked
+cargo build --release --locked
+cargo deb --no-build
+cargo generate-rpm
+```
+
+Paketler `amd64` ve `arm64` için build edilir ve `sshknockd(8)` man sayfasını içerir. Paket kurulduktan sonra daemon ve administrative command reference için `man sshknockd` çalıştırın. Package adı değiştikten sonra paketleri yeniden build etmeden önce stale artifact'leri kaldırın veya `cargo clean` çalıştırın.
+
+## Komutlar
+
+| Komut | Amaç |
+|---|---|
+| `sshknockd --config <yol>` | Verilen yapılandırma ile daemon'ı başlatır. |
+| `sshknockd --config <yol> setup-firewall` | Korunan SSH portu için ipset'leri ve firewall kurallarını oluşturur. |
+| `sshknockd --config <yol> config` | Yüklenen yapılandırmanın kısa özetini yazdırır. |
+| `sshknockd update` | Son release paketini indirir, doğrular, kurar ve etkinleştirir. |
+| `sshknockd version` | Kurulu sürümü yazdırır. |
+
+## Güvenlik notları
+
+- Knock sequence obfuscation'dır, authentication değildir. SSH authentication'ı güçlü tutun.
+- Daemon, firewall'ı yönetmek için root olarak çalışır. Paketlenen `systemd` unit'i `NoNewPrivileges`, `ProtectHome`, `PrivateTmp` ve `MemoryDenyWriteExecute` gibi hardening seçeneklerini uygular.
+- Firewall komutları açık argümanlarla ve asla bir shell üzerinden çalıştırılmaz, bu yüzden yapılandırma değerleri komut enjekte edemez.
+
+## Lisans
+
+[Apache License 2.0](LICENSE) altında lisanslanmıştır.
+

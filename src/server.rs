@@ -1,4 +1,4 @@
-use crate::config::{Config, Protocol};
+use crate::config::{AddressFamily, Config, Protocol};
 use crate::firewall::{CommandRunner, Firewall, SystemCommandRunner};
 use crate::knock::{KnockOutcome, KnockPacket, KnockTracker};
 use crate::logger::AuditLogger;
@@ -127,7 +127,7 @@ impl Server {
                 }
                 Protocol::Icmp => {
                     if icmp_socket.is_none() {
-                        icmp_socket = Some(Self::bind_icmp_socket()?);
+                        icmp_socket = Some(Self::bind_icmp_socket(&self.config.address_family)?);
                         self.logger.log("bind_icmp", "enabled")?;
                     }
                 }
@@ -213,8 +213,12 @@ impl Server {
         }
     }
 
-    fn bind_icmp_socket() -> Result<Socket> {
-        let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(SocketProtocol::ICMPV4))
+    fn bind_icmp_socket(address_family: &AddressFamily) -> Result<Socket> {
+        let (domain, protocol) = match address_family {
+            AddressFamily::Ipv4 => (Domain::IPV4, SocketProtocol::ICMPV4),
+            AddressFamily::Ipv6 => (Domain::IPV6, SocketProtocol::ICMPV6),
+        };
+        let socket = Socket::new(domain, Type::DGRAM, Some(protocol))
             .context("failed to create ICMP datagram socket")?;
         socket
             .set_nonblocking(true)

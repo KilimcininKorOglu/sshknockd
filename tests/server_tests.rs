@@ -13,13 +13,14 @@ fn ignores_idle_tcp_client_because_one_connection_must_not_block_all_listeners()
         thread::sleep(Duration::from_millis(250));
     });
     let (mut stream, _) = listener.accept().unwrap();
+    stream.set_nonblocking(true).unwrap();
     let mut buffer = [0_u8; 16];
     let started = Instant::now();
 
-    let result = read_tcp_knock(&mut stream, &mut buffer, Duration::from_millis(50)).unwrap();
+    let result = read_tcp_knock(&mut stream, &mut buffer).unwrap();
 
     assert_eq!(result, None);
-    assert!(started.elapsed() < Duration::from_millis(200));
+    assert!(started.elapsed() < Duration::from_millis(50));
     handle.join().unwrap();
 }
 
@@ -32,9 +33,20 @@ fn reads_tcp_payload_because_valid_tcp_knocks_must_still_progress() {
         client.write_all(b"knock").unwrap();
     });
     let (mut stream, _) = listener.accept().unwrap();
+    stream.set_nonblocking(true).unwrap();
     let mut buffer = [0_u8; 16];
 
-    let result = read_tcp_knock(&mut stream, &mut buffer, Duration::from_secs(1)).unwrap();
+    // Poll like the daemon loop does: the payload may not have arrived on the
+    // first non-blocking read, so retry until the bounded deadline.
+    let deadline = Instant::now() + Duration::from_secs(1);
+    let mut result = None;
+    while Instant::now() < deadline {
+        if let Some(size) = read_tcp_knock(&mut stream, &mut buffer).unwrap() {
+            result = Some(size);
+            break;
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
 
     assert_eq!(result, Some(5));
     assert_eq!(&buffer[..5], b"knock");

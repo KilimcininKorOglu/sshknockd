@@ -8,10 +8,18 @@ use socket2::{Domain, Protocol as SocketProtocol, Socket, Type};
 use std::collections::HashMap;
 use std::io::{ErrorKind, Read};
 use std::mem::MaybeUninit;
-use std::net::{IpAddr, SocketAddr, TcpListener, UdpSocket};
+use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::path::Path;
 use std::thread;
 use std::time::{Duration, Instant};
+
+#[derive(Debug)]
+struct PendingTcp {
+    port: u16,
+    stream: TcpStream,
+    addr: SocketAddr,
+    deadline: Instant,
+}
 
 #[derive(Debug)]
 pub struct Server {
@@ -124,6 +132,9 @@ impl Server {
         let mut buffer = vec![0_u8; self.config.max_payload_size.saturating_add(1)];
         let mut icmp_buffer =
             vec![MaybeUninit::<u8>::uninit(); self.config.max_payload_size.saturating_add(29)];
+        let tcp_read_timeout = Duration::from_secs(self.config.partial_state_timeout);
+        let max_pending_tcp = self.config.max_partial_states;
+        let mut pending_tcp: Vec<PendingTcp> = Vec::new();
         loop {
             for (port, socket) in &udp_sockets {
                 match socket.recv_from(&mut buffer) {
@@ -134,19 +145,42 @@ impl Server {
                     Err(error) => return Err(error.into()),
                 }
             }
+            let now = Instant::now();
             for (port, listener) in &tcp_listeners {
-                match listener.accept() {
-                    Ok((mut stream, addr)) => {
-                        if let Some(size) = read_tcp_knock(
-                            &mut stream,
-                            &mut buffer,
-                            Duration::from_secs(self.config.partial_state_timeout),
-                        )? {
-                            self.process_packet(addr, Protocol::Tcp, Some(*port), size, &runner)?;
-                        }
+                loop {
+                    if pending_tcp.len() >= max_pending_tcp {
+                        break;
                     }
-                    Err(error) if error.kind() == ErrorKind::WouldBlock => {}
-                    Err(error) => return Err(error.into()),
+                    match listener.accept() {
+                        Ok((stream, addr)) => {
+                            stream
+                                .set_nonblocking(true)
+                                .context("failed to configure accepted TCP stream")?;
+                            pending_tcp.push(PendingTcp {
+                                port: *port,
+                                stream,
+                                addr,
+                                deadline: now + tcp_read_timeout,
+                            });
+                        }
+                        Err(error) if error.kind() == ErrorKind::WouldBlock => break,
+                        Err(error) => return Err(error.into()),
+                    }
+                }
+            }
+            let mut index = 0;
+            while index < pending_tcp.len() {
+                let pending = &mut pending_tcp[index];
+                match read_tcp_knock(&mut pending.stream, &mut buffer)? {
+                    Some(size) => {
+                        let (port, addr) = (pending.port, pending.addr);
+                        pending_tcp.swap_remove(index);
+                        self.process_packet(addr, Protocol::Tcp, Some(port), size, &runner)?;
+                    }
+                    None if now >= pending.deadline => {
+                        pending_tcp.swap_remove(index);
+                    }
+                    None => index += 1,
                 }
             }
             if let Some(socket) = &icmp_socket {
@@ -290,17 +324,18 @@ impl Server {
     }
 }
 
-/// Reads a TCP knock payload with a bounded timeout.
+/// Performs one non-blocking read of a TCP knock payload.
+///
+/// The stream must already be in non-blocking mode. Returns `Ok(None)` when no
+/// data is available yet, so the caller can poll again without blocking.
 ///
 /// # Errors
 ///
-/// Returns an error when timeout configuration fails or when the read fails for a reason other than timeout.
+/// Returns an error when the read fails for a reason other than would-block.
 pub fn read_tcp_knock(
     stream: &mut std::net::TcpStream,
     buffer: &mut [u8],
-    timeout: Duration,
 ) -> std::io::Result<Option<usize>> {
-    stream.set_read_timeout(Some(timeout))?;
     match stream.read(buffer) {
         Ok(size) => Ok(Some(size)),
         Err(error) if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {

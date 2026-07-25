@@ -237,6 +237,15 @@ impl Server {
     }
 
     fn remember_banned_source(&mut self, source_ip: IpAddr, now: Instant) {
+        // Reclaim expired entries first, then bound the map by the same limit
+        // used for partial states so a spoofed-source flood cannot grow it
+        // without limit. An already-tracked source is always refreshed.
+        self.expire_banned_sources(now);
+        if self.banned_sources.len() >= self.config.max_partial_states
+            && !self.banned_sources.contains_key(&source_ip)
+        {
+            return;
+        }
         let expires_at = now + Duration::from_secs(self.config.ban_timeout);
         self.banned_sources.insert(source_ip, expires_at);
     }
@@ -653,6 +662,22 @@ mod tests {
                 diagnostics: "ipset add failed: set is full".to_string(),
             })
         }
+    }
+
+    #[test]
+    fn caps_banned_sources_map_because_a_spoofed_flood_must_not_exhaust_memory() -> Result<()> {
+        let mut server = test_server(60)?;
+        let cap = server.config.max_partial_states;
+        let now = Instant::now();
+
+        // Insert more distinct sources than the cap within the ban window.
+        for index in 0..(cap as u32 + 500) {
+            let source_ip = IpAddr::V4(std::net::Ipv4Addr::from(index));
+            server.remember_banned_source(source_ip, now);
+        }
+
+        assert_eq!(server.banned_sources.len(), cap);
+        Ok(())
     }
 
     #[test]

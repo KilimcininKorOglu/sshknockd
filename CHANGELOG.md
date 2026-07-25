@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.4] - 2026-07-25
+
+### Changed
+- Overhaul README documentation structure.
+
+### Fixed
+- Make accepted TCP knock streams non-blocking so a slow or silent client can no longer stall the single-threaded poll loop.
+- Stage updater downloads in a private root-only directory to prevent symlink attacks and verify/install races.
+- Keep the daemon running when a ban ipset add fails, preventing a flood-induced crash loop.
+- Correct ICMP knock payload size accounting for datagram sockets.
+- Bind the ICMP knock listener to the configured address family (IPv4 or IPv6).
+- Bound the in-memory banned source map so a spoofed-source flood cannot exhaust memory.
+
 ## [0.2.3] - 2026-07-08
 
 ### Fixed

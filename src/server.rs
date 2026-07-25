@@ -13,6 +13,10 @@ use std::path::Path;
 use std::thread;
 use std::time::{Duration, Instant};
 
+/// Length of the ICMP header that a Linux datagram ICMP socket includes ahead
+/// of the payload. The kernel strips the IP header for `SOCK_DGRAM` sockets.
+const ICMP_HEADER_LEN: usize = 8;
+
 #[derive(Debug)]
 struct PendingTcp {
     port: u16,
@@ -130,8 +134,14 @@ impl Server {
             }
         }
         let mut buffer = vec![0_u8; self.config.max_payload_size.saturating_add(1)];
-        let mut icmp_buffer =
-            vec![MaybeUninit::<u8>::uninit(); self.config.max_payload_size.saturating_add(29)];
+        // Room for the ICMP header, the maximum payload, and one extra byte so
+        // an oversized payload is still received and classified as oversized.
+        let mut icmp_buffer = vec![
+            MaybeUninit::<u8>::uninit();
+            self.config
+                .max_payload_size
+                .saturating_add(ICMP_HEADER_LEN + 1)
+        ];
         let tcp_read_timeout = Duration::from_secs(self.config.partial_state_timeout);
         let max_pending_tcp = self.config.max_partial_states;
         let mut pending_tcp: Vec<PendingTcp> = Vec::new();
@@ -189,7 +199,10 @@ impl Server {
                         let addr = addr
                             .as_socket()
                             .context("failed to read ICMP source address")?;
-                        let payload_size = size.saturating_sub(28);
+                        // A Linux SOCK_DGRAM/IPPROTO_ICMP socket delivers the
+                        // datagram starting at the 8-byte ICMP header, without
+                        // the IP header, so only the ICMP header is subtracted.
+                        let payload_size = size.saturating_sub(ICMP_HEADER_LEN);
                         self.process_packet(addr, Protocol::Icmp, None, payload_size, &runner)?;
                     }
                     Err(error) if error.kind() == ErrorKind::WouldBlock => {}

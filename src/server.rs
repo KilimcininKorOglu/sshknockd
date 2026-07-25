@@ -286,21 +286,29 @@ impl Server {
         if matches!(outcome, KnockOutcome::Rejected | KnockOutcome::Oversized)
             && !self.source_limiter.allow(source_ip, now)
         {
-            if let Err(error) = self.firewall.ban_ip(runner, source_ip) {
-                self.logger.log(
-                    "firewall_ban_failed",
-                    &format!("source_ip={source_ip} error={error}"),
-                )?;
-                return Err(error);
-            }
+            // Record the in-memory ban first so the daemon still short-circuits
+            // this source even if the kernel ban set cannot accept the entry.
             self.remember_banned_source(source_ip, now);
-            self.logger.log(
-                "rate_limit_ban",
-                &format!(
-                    "source_ip={source_ip} ban_timeout_seconds={}",
-                    self.config.ban_timeout
-                ),
-            )?;
+            match self.firewall.ban_ip(runner, source_ip) {
+                Ok(()) => {
+                    self.logger.log(
+                        "rate_limit_ban",
+                        &format!(
+                            "source_ip={source_ip} ban_timeout_seconds={}",
+                            self.config.ban_timeout
+                        ),
+                    )?;
+                }
+                // Banning is a defense-in-depth optimization: the source is
+                // already rate-limited and tracked in memory. A full or failing
+                // ban set must not crash the daemon (fail-open on the ban path).
+                Err(error) => {
+                    self.logger.log(
+                        "firewall_ban_failed",
+                        &format!("source_ip={source_ip} error={error}"),
+                    )?;
+                }
+            }
             return Ok(());
         }
         self.log_packet_telemetry(source_ip, &outcome, now)?;
@@ -614,6 +622,43 @@ mod tests {
         server.expire_banned_sources(now + Duration::from_secs(2));
 
         assert!(!server.banned_sources.contains_key(&source_ip));
+        Ok(())
+    }
+
+    #[derive(Debug, Default)]
+    struct FailingBanRunner;
+
+    impl CommandRunner for FailingBanRunner {
+        fn run_status(&self, _spec: &CommandSpec) -> Result<CommandStatus> {
+            Ok(CommandStatus {
+                success: false,
+                code: Some(1),
+                diagnostics: "ipset add failed: set is full".to_string(),
+            })
+        }
+    }
+
+    #[test]
+    fn keeps_running_when_ban_ipset_add_fails_because_a_full_ban_set_must_not_crash_the_daemon()
+    -> Result<()> {
+        let (mut server, log_file) = test_server_with_log_level("info", 2)?;
+        let runner = FailingBanRunner;
+        let source_ip = "192.0.2.40";
+        let parsed_source_ip = source_ip.parse()?;
+        let addr = SocketAddr::new(parsed_source_ip, 12_345);
+
+        // First oversized knock consumes the single invalid token; the second
+        // exceeds the per-source limit and triggers the (failing) ban.
+        server.process_packet(addr, Protocol::Tcp, Some(7001), 513, &runner)?;
+        let result = server.process_packet(addr, Protocol::Tcp, Some(7001), 513, &runner);
+
+        assert!(
+            result.is_ok(),
+            "a failing ban_ip must not propagate an error that crashes the daemon"
+        );
+        assert!(server.banned_sources.contains_key(&parsed_source_ip));
+        let content = fs::read_to_string(log_file.path())?;
+        assert!(content.contains("event=firewall_ban_failed"));
         Ok(())
     }
 }

@@ -6,7 +6,8 @@ use sha2::{Digest, Sha256};
 use ssh_knock::config::Config;
 use ssh_knock::firewall::{Firewall, SystemCommandRunner};
 use ssh_knock::server::Server;
-use std::fs;
+use std::fs::{self, DirBuilder};
+use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -107,23 +108,61 @@ fn update_from_latest_release() -> Result<()> {
     let asset = select_release_asset(&release, extension, arch)?;
     let manifest_asset = select_named_release_asset(&release, CHECKSUM_MANIFEST)?;
     let signature_asset = select_named_release_asset(&release, CHECKSUM_SIGNATURE)?;
-    let package_path = PathBuf::from(format!("/tmp/sshknockd-update.{extension}"));
-    let manifest_path = PathBuf::from("/tmp/sshknockd-SHA256SUMS");
-    let signature_path = PathBuf::from("/tmp/sshknockd-SHA256SUMS.sig");
-    download_package(&asset.browser_download_url, &package_path)?;
-    download_package(&manifest_asset.browser_download_url, &manifest_path)?;
-    download_package(&signature_asset.browser_download_url, &signature_path)?;
-    verify_package_against_signed_manifest(asset, &package_path, &manifest_path, &signature_path)?;
-    fs::remove_file(&manifest_path).ok();
-    fs::remove_file(&signature_path).ok();
-    install_package(&package_path, extension)?;
+    let staging_dir = create_private_staging_dir()?;
+    let result = stage_verify_and_install(
+        asset,
+        manifest_asset,
+        signature_asset,
+        extension,
+        &staging_dir,
+    );
+    fs::remove_dir_all(&staging_dir).ok();
+    result?;
     restart_service()?;
-    fs::remove_file(&package_path).ok();
     println!(
         "sshknockd updated from {} to {latest_version}",
         env!("CARGO_PKG_VERSION")
     );
     Ok(())
+}
+
+/// Creates a private root-only staging directory for update downloads.
+///
+/// Using a fresh `0700` directory prevents an unprivileged user from
+/// pre-creating the download paths as symlinks (root would otherwise follow
+/// them) and closes the verify/install swap window, since no other user can
+/// write inside it. `create` fails atomically if the path already exists, so a
+/// racing attacker aborts the update instead of redirecting it.
+fn create_private_staging_dir() -> Result<PathBuf> {
+    let dir = PathBuf::from(format!("/tmp/sshknockd-staging-{}", std::process::id()));
+    fs::remove_dir_all(&dir).ok();
+    DirBuilder::new()
+        .mode(0o700)
+        .create(&dir)
+        .with_context(|| {
+            format!(
+                "failed to create private staging directory {}",
+                dir.display()
+            )
+        })?;
+    Ok(dir)
+}
+
+fn stage_verify_and_install(
+    asset: &ReleaseAsset,
+    manifest_asset: &ReleaseAsset,
+    signature_asset: &ReleaseAsset,
+    extension: &str,
+    staging_dir: &Path,
+) -> Result<()> {
+    let package_path = staging_dir.join(format!("sshknockd-update.{extension}"));
+    let manifest_path = staging_dir.join("SHA256SUMS");
+    let signature_path = staging_dir.join("SHA256SUMS.sig");
+    download_package(&asset.browser_download_url, &package_path)?;
+    download_package(&manifest_asset.browser_download_url, &manifest_path)?;
+    download_package(&signature_asset.browser_download_url, &signature_path)?;
+    verify_package_against_signed_manifest(asset, &package_path, &manifest_path, &signature_path)?;
+    install_package(&package_path, extension)
 }
 
 fn curl_common_args() -> [&'static str; 12] {

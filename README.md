@@ -132,7 +132,7 @@ The daemon writes SIEM-oriented audit events to `log_file`. At `info`, events in
 sudo sshknockd update
 ```
 
-The command checks the latest release at `KilimcininKoroglu/sshknockd`, compares it with the installed version, and selects a `.deb` package on Debian or Ubuntu and a `.rpm` package on CentOS, Fedora, RHEL, Rocky Linux, or AlmaLinux. It restricts package, checksum, and signature downloads to HTTPS including redirects, verifies the signed `SHA256SUMS` manifest with an embedded ed25519 public key, verifies the downloaded package against its manifest `sha256` digest, installs it with `dpkg -i` or `rpm -Uvh`, and then runs `systemctl restart sshknockd`.
+The command checks the latest release at `KilimcininKoroglu/sshknockd`, compares it with the installed version, and selects a `.deb` package on Debian or Ubuntu and a `.rpm` package on CentOS, Fedora, RHEL, Rocky Linux, or AlmaLinux. It restricts package, checksum, and signature downloads to HTTPS including redirects, verifies the signed `SHA256SUMS` manifest with an embedded ed25519 public key, verifies the downloaded package against its manifest `sha256` digest, installs it with `dpkg -i` or `rpm -Uvh`, and then runs `systemctl restart sshknockd`. Downloads are staged in a per-process, root-only temporary directory that is removed after installation or on error.
 
 Release asset names must include the package extension and architecture. x86_64 Debian or Ubuntu publishes a `.deb` asset containing `amd64`; RPM-based x86_64 systems publish a `.rpm` asset containing `x86_64`. ARM64 systems publish assets containing `arm64` or `aarch64`.
 
